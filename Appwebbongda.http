@@ -1,0 +1,6 @@
+@Appwebbongda_HostAddress = http://localhost:5215
+
+GET {{Appwebbongda_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
