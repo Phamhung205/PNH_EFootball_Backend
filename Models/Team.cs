@@ -23,5 +23,9 @@ namespace Appwebbongda.Models
         // Cho phép lưu logo dạng URL, emoji, hoặc base64 (ảnh upload dài) → nvarchar(max)
         [Column(TypeName = "nvarchar(max)")]
         public string? LogoUrl { get; set; }
+
+        // GIAI DOAN 1 - CHIA BANG: ten bang dau ("A", "B", ... hoac null neu chua phan bang)
+        [MaxLength(10)]
+        public string? GroupName { get; set; }
     }
 }
