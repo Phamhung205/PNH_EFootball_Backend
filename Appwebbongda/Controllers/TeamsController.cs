@@ -56,22 +56,28 @@ namespace Appwebbongda.Controllers
         {
             try
             {
-                // CUC NHE: de DATABASE gom nhom, chi keo ve ket qua cuoi (it du lieu).
-                // Tranh tai het doi ve RAM (gay OutOfMemory tren server RAM thap).
-                // Gom theo ten doi (thuong), lay 1 logo dai dien, dem so luong.
-                var grouped = await _context.Teams
-                    .Where(t => t.TournamentId != null && t.Name != null && t.Name != "")
-                    .GroupBy(t => t.Name!.ToLower())
+                // QUAN TRONG: KHONG dung GroupBy trong truy van (EF Core dich thanh SQL
+                // long nhau khong lo -> sap SQL Server). Thay vao do:
+                //   1. Truy van SIEU DON GIAN: chi lay 3 cot, AsNoTracking (nhe, EF dich tot).
+                //   2. Gop nhom bang C# trong bo nho (nhanh, nhe voi vai tram doi).
+                var raw = await _context.Teams
+                    .AsNoTracking()
+                    .Where(t => t.TournamentId != null)
+                    .Select(t => new { t.Name, t.LogoUrl })
+                    .ToListAsync();
+
+                // Gop theo ten (khong phan biet hoa thuong) bang C#
+                var grouped = raw
+                    .Where(t => !string.IsNullOrWhiteSpace(t.Name))
+                    .GroupBy(t => t.Name!.Trim().ToLowerInvariant())
                     .Select(g => new
                     {
-                        name = g.Select(x => x.Name).FirstOrDefault(),
-                        logoUrl = g.Where(x => x.LogoUrl != null && x.LogoUrl != "")
-                                   .Select(x => x.LogoUrl).FirstOrDefault(),
+                        name = g.First().Name,
+                        logoUrl = g.FirstOrDefault(x => !string.IsNullOrWhiteSpace(x.LogoUrl))?.LogoUrl,
                         count = g.Count()
                     })
                     .OrderBy(x => x.name)
-                    .Take(500)   // gioi han an toan, tranh tra qua nhieu
-                    .ToListAsync();
+                    .ToList();
 
                 return Ok(new { success = true, data = grouped });
             }
