@@ -130,6 +130,89 @@ namespace Appwebbongda.Controllers
         public class LogoRequestDto { public List<string>? names { get; set; } }
 
         /// <summary>
+        /// POST /api/tournaments/{tournamentId}/teams/bulk
+        /// body: { names: ["Algeria","Brazil",...] }
+        /// Tao NHIEU doi cung luc (1 request thay vi N request) - nhanh + on dinh.
+        /// Tu dong lay logo tu thu vien (theo ten), bo qua doi da co trong giai.
+        /// </summary>
+        [HttpPost("tournaments/{tournamentId}/teams/bulk")]
+        [Authorize(Roles = "Admin")]
+        public async Task<IActionResult> CreateBulk(int tournamentId, [FromBody] BulkTeamsDto dto)
+        {
+            try
+            {
+                if (tournamentId <= 0)
+                    return BadRequest(new { success = false, message = "Thiếu hoặc sai ID giải đấu." });
+
+                var tournament = await _context.Tournaments.FindAsync(tournamentId);
+                if (tournament == null)
+                    return NotFound(new { success = false, message = $"Không tìm thấy giải đấu ID = {tournamentId}." });
+
+                if (dto?.names == null || dto.names.Count == 0)
+                    return Ok(new { success = true, message = "Không có đội nào để thêm.", added = 0 });
+
+                // Ten can them (chuan hoa, loai trung)
+                var wantNames = dto.names
+                    .Where(n => !string.IsNullOrWhiteSpace(n))
+                    .Select(n => n.Trim())
+                    .GroupBy(n => n.ToLowerInvariant())
+                    .Select(g => g.First())
+                    .ToList();
+
+                // Doi da co trong giai (de bo qua)
+                var existing = await _context.Teams
+                    .Where(t => t.TournamentId == tournamentId && t.Name != null)
+                    .Select(t => t.Name!.ToLower())
+                    .ToListAsync();
+                var existingSet = new HashSet<string>(existing);
+
+                // Lay logo cho cac ten can them (1 lan, tu thu vien)
+                var lowerWanted = wantNames.Select(n => n.ToLowerInvariant()).ToHashSet();
+                var withLogo = await _context.Teams
+                    .AsNoTracking()
+                    .Where(t => t.LogoUrl != null && t.LogoUrl != "" && t.Name != null)
+                    .Select(t => new { t.Name, t.LogoUrl })
+                    .ToListAsync();
+                var logoMap = new Dictionary<string, string>();
+                foreach (var t in withLogo)
+                {
+                    var key = t.Name!.Trim().ToLowerInvariant();
+                    if (lowerWanted.Contains(key) && !logoMap.ContainsKey(key))
+                        logoMap[key] = t.LogoUrl!;
+                }
+
+                // Tao danh sach doi moi (bo qua doi da co)
+                var newTeams = new List<Team>();
+                foreach (var name in wantNames)
+                {
+                    var key = name.ToLowerInvariant();
+                    if (existingSet.Contains(key)) continue;
+                    newTeams.Add(new Team
+                    {
+                        Name = name,
+                        LogoUrl = logoMap.ContainsKey(key) ? logoMap[key] : null,
+                        TournamentId = tournamentId,
+                        Status = "Đã duyệt"
+                    });
+                }
+
+                if (newTeams.Count > 0)
+                {
+                    _context.Teams.AddRange(newTeams);
+                    await _context.SaveChangesAsync();
+                }
+
+                return Ok(new { success = true, message = $"Đã thêm {newTeams.Count} đội.", added = newTeams.Count });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { success = false, message = "Lỗi khi thêm đội: " + (ex.InnerException?.Message ?? ex.Message) });
+            }
+        }
+
+        public class BulkTeamsDto { public List<string>? names { get; set; } }
+
+        /// <summary>
         /// POST /api/tournaments/{tournamentId}/teams
         /// Them doi - LUON gan TournamentId tu URL. Tu choi neu giai khong ton tai.
         /// </summary>
