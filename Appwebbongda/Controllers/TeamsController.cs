@@ -56,24 +56,21 @@ namespace Appwebbongda.Controllers
         {
             try
             {
-                // QUAN TRONG: KHONG dung GroupBy trong truy van (EF Core dich thanh SQL
-                // long nhau khong lo -> sap SQL Server). Thay vao do:
-                //   1. Truy van SIEU DON GIAN: chi lay 3 cot, AsNoTracking (nhe, EF dich tot).
-                //   2. Gop nhom bang C# trong bo nho (nhanh, nhe voi vai tram doi).
+                // CHI lay Name + co LogoUrl hay khong (KHONG keo base64 ve -> JSON nhe, tai nhanh).
+                // Logo se lay rieng khi import (API teams/logos ben duoi).
                 var raw = await _context.Teams
                     .AsNoTracking()
                     .Where(t => t.TournamentId != null)
-                    .Select(t => new { t.Name, t.LogoUrl })
+                    .Select(t => new { t.Name, HasLogo = (t.LogoUrl != null && t.LogoUrl != "") })
                     .ToListAsync();
 
-                // Gop theo ten (khong phan biet hoa thuong) bang C#
                 var grouped = raw
                     .Where(t => !string.IsNullOrWhiteSpace(t.Name))
                     .GroupBy(t => t.Name!.Trim().ToLowerInvariant())
                     .Select(g => new
                     {
                         name = g.First().Name,
-                        logoUrl = g.FirstOrDefault(x => !string.IsNullOrWhiteSpace(x.LogoUrl))?.LogoUrl,
+                        hasLogo = g.Any(x => x.HasLogo),   // co logo hay khong (de hien icon)
                         count = g.Count()
                     })
                     .OrderBy(x => x.name)
@@ -86,6 +83,51 @@ namespace Appwebbongda.Controllers
                 return Ok(new { success = true, data = new object[0], warning = ex.Message });
             }
         }
+
+        /// <summary>
+        /// POST /api/teams/logos  body: { names: ["Algeria","Brazil",...] }
+        /// Lay logo cho danh sach ten doi (dung khi IMPORT - chi lay logo cua doi duoc chon).
+        /// </summary>
+        [HttpPost("teams/logos")]
+        public async Task<IActionResult> GetLogosByNames([FromBody] LogoRequestDto dto)
+        {
+            try
+            {
+                if (dto?.names == null || dto.names.Count == 0)
+                    return Ok(new { success = true, data = new Dictionary<string, string>() });
+
+                // Chuan hoa ten can tim (thuong, trim)
+                var wanted = dto.names
+                    .Where(n => !string.IsNullOrWhiteSpace(n))
+                    .Select(n => n.Trim().ToLowerInvariant())
+                    .Distinct()
+                    .ToList();
+
+                // Lay cac doi co logo, ten nam trong danh sach can tim
+                var teams = await _context.Teams
+                    .AsNoTracking()
+                    .Where(t => t.TournamentId != null && t.LogoUrl != null && t.LogoUrl != "" && t.Name != null)
+                    .Select(t => new { t.Name, t.LogoUrl })
+                    .ToListAsync();
+
+                // Gom: moi ten -> 1 logo dai dien (lay cai dau tien tim thay)
+                var map = new Dictionary<string, string>();
+                foreach (var t in teams)
+                {
+                    var key = t.Name!.Trim().ToLowerInvariant();
+                    if (wanted.Contains(key) && !map.ContainsKey(key))
+                        map[key] = t.LogoUrl!;
+                }
+
+                return Ok(new { success = true, data = map });
+            }
+            catch (Exception ex)
+            {
+                return Ok(new { success = true, data = new Dictionary<string, string>(), warning = ex.Message });
+            }
+        }
+
+        public class LogoRequestDto { public List<string>? names { get; set; } }
 
         /// <summary>
         /// POST /api/tournaments/{tournamentId}/teams
