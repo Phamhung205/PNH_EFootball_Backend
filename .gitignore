@@ -1,6 +1,14 @@
+<<<<<<< HEAD
 bin/
+=======
+﻿bin/
+>>>>>>> 9134d155d48760b5a1a538ca5abdca619e08dc24
 obj/
 .vs/
 *.user
 appsettings.Development.json
+<<<<<<< HEAD
 node_modules/
+=======
+node_modules/
+>>>>>>> 9134d155d48760b5a1a538ca5abdca619e08dc24

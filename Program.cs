@@ -55,14 +55,15 @@ builder.Services.AddSwaggerGen();
 
 // 5. CORS
 const string CorsPolicy = "FrontendCors";
-
+var allowedOrigins = builder.Configuration["AllowedOrigins"]?
+        .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+    ?? new[] { "http://localhost:5173" };
 builder.Services.AddCors(options =>
 {
     options.AddPolicy(CorsPolicy, policy =>
-        policy.AllowAnyOrigin()   // Mở toang cửa cho tất cả
-              .AllowAnyHeader()
-              .AllowAnyMethod());
+        policy.WithOrigins(allowedOrigins).AllowAnyHeader().AllowAnyMethod());
 });
+
 var app = builder.Build();
 
 // 6. Migrate + Seed admin
