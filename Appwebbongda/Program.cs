@@ -53,18 +53,16 @@ builder.Services.AddControllers()
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
-// 5. CORS
+// 5. CORS (Đã khóa chốt an toàn)
 const string CorsPolicy = "FrontendCors";
 
 builder.Services.AddCors(options =>
 {
     options.AddPolicy(CorsPolicy, policy =>
-        policy.AllowAnyOrigin()   // Mở toang cửa cho tất cả
+        policy.WithOrigins("https://pnhefootball.vercel.app", "http://localhost:5173") // Chỉ cho phép Vercel và máy bạn gọi API
               .AllowAnyHeader()
               .AllowAnyMethod());
 });
-var app = builder.Build();
-
 // 6. Migrate + Seed admin
 using (var scope = app.Services.CreateScope())
 {
