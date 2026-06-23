@@ -54,34 +54,49 @@ namespace Appwebbongda.Controllers
         [HttpGet("teams/library")]
         public async Task<IActionResult> GetLibrary([FromQuery] int? excludeTournamentId = null)
         {
-            var raw = await _context.Teams
-                .Where(t => t.TournamentId != null)
-                .Include(t => t.Tournament)
-                .ToListAsync();
+            try
+            {
+                // Lay doi gon nhe: chi lay cot can thiet, KHONG Include quan he (tranh nang/sap)
+                var raw = await _context.Teams
+                    .Where(t => t.TournamentId != null && t.Name != null && t.Name != "")
+                    .Select(t => new { t.Name, t.LogoUrl, t.TournamentId })
+                    .ToListAsync();
 
-            // Gop theo ten (khong phan biet hoa thuong), giu ban co logo neu co
-            var grouped = raw
-                .GroupBy(t => (t.Name ?? "").Trim().ToLowerInvariant())
-                .Where(g => !string.IsNullOrWhiteSpace(g.Key))
-                .Select(g =>
-                {
-                    var best = g.FirstOrDefault(x => !string.IsNullOrWhiteSpace(x.LogoUrl)) ?? g.First();
-                    return new
+                // Lay map ten giai rieng (nhe hon Include)
+                var tourMap = await _context.Tournaments
+                    .Select(x => new { x.TournamentId, x.Name })
+                    .ToDictionaryAsync(x => x.TournamentId, x => x.Name);
+
+                // Gop theo ten (khong phan biet hoa thuong), giu ban co logo neu co
+                var grouped = raw
+                    .GroupBy(t => (t.Name ?? "").Trim().ToLowerInvariant())
+                    .Where(g => !string.IsNullOrWhiteSpace(g.Key))
+                    .Select(g =>
                     {
-                        name = best.Name,
-                        logoUrl = best.LogoUrl,
-                        // danh sach cac giai ma doi nay tung tham gia (de loc theo giai)
-                        tournaments = g.Where(x => x.Tournament != null)
-                                       .Select(x => new { id = x.TournamentId, name = x.Tournament!.Name })
-                                       .Distinct()
-                                       .ToList(),
-                        count = g.Count()
-                    };
-                })
-                .OrderBy(x => x.name)
-                .ToList();
+                        var best = g.FirstOrDefault(x => !string.IsNullOrWhiteSpace(x.LogoUrl)) ?? g.First();
+                        var tours = g.Where(x => x.TournamentId != null)
+                                     .Select(x => x.TournamentId!.Value)
+                                     .Distinct()
+                                     .Select(id => new { id, name = tourMap.ContainsKey(id) ? tourMap[id] : "?" })
+                                     .ToList();
+                        return new
+                        {
+                            name = best.Name,
+                            logoUrl = best.LogoUrl,
+                            tournaments = tours,
+                            count = g.Count()
+                        };
+                    })
+                    .OrderBy(x => x.name)
+                    .ToList();
 
-            return Ok(new { success = true, data = grouped });
+                return Ok(new { success = true, data = grouped });
+            }
+            catch (Exception ex)
+            {
+                // Khong sap: tra ve mang rong + thong bao loi mem
+                return Ok(new { success = true, data = new object[0], warning = ex.Message });
+            }
         }
 
         /// <summary>
