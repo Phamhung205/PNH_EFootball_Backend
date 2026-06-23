@@ -46,7 +46,35 @@ namespace Appwebbongda.Controllers
                 .OrderBy(m => m.Round)
                 .ToListAsync();
 
-            return Ok(new { success = true, data = matches });
+            // Lay GroupName cua tung doi de gan bang cho moi tran
+            var teams = await _context.Teams
+                .Where(t => t.TournamentId == tournamentId)
+                .ToListAsync();
+            var groupMap = teams.ToDictionary(t => t.TeamId, t => t.GroupName);
+
+            // Tra ve kem groupName: tran thuoc bang nao (lay theo doi nha, neu trong thi lay doi khach)
+            var data = matches.Select(m =>
+            {
+                string? grp = null;
+                if (groupMap.TryGetValue(m.HomeTeamId, out var gh) && !string.IsNullOrWhiteSpace(gh)) grp = gh;
+                else if (groupMap.TryGetValue(m.AwayTeamId, out var ga) && !string.IsNullOrWhiteSpace(ga)) grp = ga;
+
+                return new
+                {
+                    m.MatchId,
+                    m.TournamentId,
+                    m.HomeTeamId,
+                    m.AwayTeamId,
+                    m.HomeScore,
+                    m.AwayScore,
+                    m.Round,
+                    m.Status,
+                    m.MatchDate,
+                    groupName = grp   // <-- THEM: ten bang cua tran
+                };
+            }).ToList();
+
+            return Ok(new { success = true, data });
         }
 
         /// <summary>
@@ -75,58 +103,38 @@ namespace Appwebbongda.Controllers
             _context.Matches.RemoveRange(oldMatches);
             await _context.SaveChangesAsync();
 
-            // Thuật toán vòng tròn (Circle method)
-            var list = teams.Select(t => (int?)t.TeamId).ToList();
-            if (list.Count % 2 != 0) list.Add(null); // thêm "bye" nếu lẻ
-
-            int n = list.Count;
-            int rounds = n - 1;
-            int half = n / 2;
+            string type = dto?.Type ?? "single";
+            bool isDouble = type == "double";
             var newMatches = new List<Match>();
 
-            for (int r = 0; r < rounds; r++)
-            {
-                for (int i = 0; i < half; i++)
-                {
-                    var home = list[i];
-                    var away = list[n - 1 - i];
+            // Kiểm tra giải có chia bảng không: đội nào có GroupName thì coi là có bảng
+            bool hasGroups = teams.Any(t => !string.IsNullOrWhiteSpace(t.GroupName));
 
-                    if (home != null && away != null)
-                    {
-                        newMatches.Add(new Match
-                        {
-                            TournamentId = tournamentId,
-                            HomeTeamId = home.Value,
-                            AwayTeamId = away.Value,
-                            Round = r + 1,
-                            Status = "Scheduled",
-                            HomeScore = null,
-                            AwayScore = null
-                        });
-                    }
+            if (hasGroups)
+            {
+                // ── CÓ CHIA BẢNG: mỗi bảng đá vòng tròn riêng ──
+                // Nhóm đội theo GroupName. Đội không có bảng -> gom vào nhóm "Chưa phân bảng" (bỏ qua nếu <2)
+                var groups = teams
+                    .Where(t => !string.IsNullOrWhiteSpace(t.GroupName))
+                    .GroupBy(t => t.GroupName!)
+                    .OrderBy(g => g.Key);
+
+                foreach (var g in groups)
+                {
+                    var groupTeams = g.Select(t => t.TeamId).ToList();
+                    if (groupTeams.Count < 2) continue; // bảng <2 đội thì bỏ qua
+                    var groupMatches = BuildRoundRobin(tournamentId, groupTeams, isDouble);
+                    newMatches.AddRange(groupMatches);
                 }
 
-                // Xoay vòng (giữ phần tử đầu cố định)
-                var last = list[n - 1];
-                for (int i = n - 1; i > 1; i--)
-                    list[i] = list[i - 1];
-                list[1] = last;
+                if (newMatches.Count == 0)
+                    return BadRequest(new { success = false, message = "Không có bảng nào đủ 2 đội để tạo lịch. Hãy chia bảng trước." });
             }
-
-            // Nếu type = double thì tạo thêm lượt về
-            string type = dto?.Type ?? "single";
-            if (type == "double")
+            else
             {
-                int baseRounds = rounds;
-                var secondLeg = newMatches.Select(m => new Match
-                {
-                    TournamentId = m.TournamentId,
-                    HomeTeamId = m.AwayTeamId,
-                    AwayTeamId = m.HomeTeamId,
-                    Round = m.Round + baseRounds,
-                    Status = "Scheduled"
-                }).ToList();
-                newMatches.AddRange(secondLeg);
+                // ── KHÔNG CHIA BẢNG: tất cả đội đá vòng tròn chung (giải đường dài) ──
+                var allTeams = teams.Select(t => t.TeamId).ToList();
+                newMatches = BuildRoundRobin(tournamentId, allTeams, isDouble);
             }
 
             _context.Matches.AddRange(newMatches);
@@ -138,6 +146,65 @@ namespace Appwebbongda.Controllers
                 message = $"Đã tạo {newMatches.Count} trận đấu thành công!",
                 data = newMatches
             });
+        }
+
+        // ── Helper: sinh lịch vòng tròn (Circle method) cho 1 danh sách đội ──
+        // isDouble = true -> thêm lượt về (đảo sân nhà/khách, Round nối tiếp)
+        private static List<Match> BuildRoundRobin(int tournamentId, List<int> teamIds, bool isDouble)
+        {
+            var result = new List<Match>();
+            var list = teamIds.Select(id => (int?)id).ToList();
+            if (list.Count % 2 != 0) list.Add(null); // thêm "bye" nếu lẻ
+
+            int n = list.Count;
+            int rounds = n - 1;
+            int half = n / 2;
+
+            for (int r = 0; r < rounds; r++)
+            {
+                for (int i = 0; i < half; i++)
+                {
+                    var home = list[i];
+                    var away = list[n - 1 - i];
+                    if (home != null && away != null)
+                    {
+                        result.Add(new Match
+                        {
+                            TournamentId = tournamentId,
+                            HomeTeamId = home.Value,
+                            AwayTeamId = away.Value,
+                            Round = r + 1,
+                            Status = "Scheduled",
+                            HomeScore = null,
+                            AwayScore = null
+                        });
+                    }
+                }
+                // Xoay vòng (giữ phần tử đầu cố định)
+                var last = list[n - 1];
+                for (int i = n - 1; i > 1; i--)
+                    list[i] = list[i - 1];
+                list[1] = last;
+            }
+
+            // Lượt về: đảo sân, Round nối tiếp sau lượt đi
+            if (isDouble)
+            {
+                int baseRounds = rounds;
+                var secondLeg = result.Select(m => new Match
+                {
+                    TournamentId = m.TournamentId,
+                    HomeTeamId = m.AwayTeamId,
+                    AwayTeamId = m.HomeTeamId,
+                    Round = m.Round + baseRounds,
+                    Status = "Scheduled",
+                    HomeScore = null,
+                    AwayScore = null
+                }).ToList();
+                result.AddRange(secondLeg);
+            }
+
+            return result;
         }
 
         /// <summary>

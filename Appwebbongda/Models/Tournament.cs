@@ -25,6 +25,9 @@ namespace Appwebbongda.Models
 
         public string Status { get; set; } = "Sắp khởi tranh";
 
+        // LOGO giai dau (URL hoac base64 anh upload tu may). Null neu chua co.
+        public string? LogoUrl { get; set; }
+
         // Khởi tạo List rỗng để fix cảnh báo Null cho ICollection
         public ICollection<Group> Groups { get; set; } = new List<Group>();
         public ICollection<Team> Teams { get; set; } = new List<Team>();

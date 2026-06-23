@@ -12,6 +12,7 @@
     {
         public string? FullName { get; set; }
         public string? PhoneNumber { get; set; }
+        public string? AvatarUrl { get; set; }
     }
 
     // DTO quen mat khau - buoc 1: gui OTP (LOI 4)

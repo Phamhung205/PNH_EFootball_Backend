@@ -1,11 +1,12 @@
 using System;
 using System.Collections.Concurrent;
 using System.IdentityModel.Tokens.Jwt;
-using System.Net;
-using System.Net.Mail;
+using System.Net.Http;
+using System.Net.Http.Headers;
 using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Configuration;
 using Microsoft.IdentityModel.Tokens;
@@ -103,45 +104,51 @@ namespace Appwebbongda.Services
         }
     }
 
-    // ========== EMAIL THAT qua Gmail SMTP ==========
+    // ========== EMAIL THAT qua BREVO API (cong 443 - Render KHONG chan) ==========
+    // Brevo (Sendinblue): free 300 email/ngay, gui toi MOI email sau khi xac minh sender.
+    // KHONG can domain rieng. Goi qua HTTPS nen chay duoc tren Render.
     public class EmailSender : IEmailSender
     {
         private readonly IConfiguration _config;
+        private static readonly HttpClient _http = new HttpClient();
+
         public EmailSender(IConfiguration config) => _config = config;
 
         public async Task SendEmailAsync(string email, string subject, string message)
         {
-            var host = _config["Email:Host"] ?? "smtp.gmail.com";
-            var portStr = _config["Email:Port"] ?? "587";
-            var fromEmail = _config["Email:From"];
-            var appPassword = _config["Email:Password"];
-            var fromName = _config["Email:FromName"] ?? "PNH Football";
+            var apiKey = _config["Brevo:ApiKey"];                 // API key Brevo (xkeysib-...)
+            var fromEmail = _config["Brevo:From"];                // email sender da xac minh trong Brevo
+            var fromName = _config["Brevo:FromName"] ?? "PNH Football";
 
-            if (string.IsNullOrWhiteSpace(fromEmail) || string.IsNullOrWhiteSpace(appPassword))
+            if (string.IsNullOrWhiteSpace(apiKey) || string.IsNullOrWhiteSpace(fromEmail))
             {
-                Console.WriteLine($"[EMAIL - CHUA CAU HINH] -> {email} | {subject} | {message}");
+                Console.WriteLine($"[EMAIL - CHUA CAU HINH BREVO] -> {email} | {subject} | {message}");
                 return;
             }
 
-            int port = int.TryParse(portStr, out var p) ? p : 587;
-
-            var mail = new MailMessage();
-            mail.From = new MailAddress(fromEmail, fromName);
-            mail.To.Add(email);
-            mail.Subject = subject;
-            mail.Body = message;
-            mail.IsBodyHtml = false;
-
-            using var smtp = new SmtpClient(host, port)
+            var payload = new
             {
-                EnableSsl = true,
-                UseDefaultCredentials = false,
-                Credentials = new NetworkCredential(fromEmail, appPassword),
-                DeliveryMethod = SmtpDeliveryMethod.Network,
+                sender = new { name = fromName, email = fromEmail },
+                to = new[] { new { email = email } },
+                subject = subject,
+                textContent = message
             };
+            var json = JsonSerializer.Serialize(payload);
 
-            await smtp.SendMailAsync(mail);
-            Console.WriteLine($"[EMAIL DA GUI] -> {email} | {subject}");
+            using var req = new HttpRequestMessage(HttpMethod.Post, "https://api.brevo.com/v3/smtp/email");
+            req.Headers.Add("api-key", apiKey);
+            req.Headers.Add("accept", "application/json");
+            req.Content = new StringContent(json, Encoding.UTF8, "application/json");
+
+            var res = await _http.SendAsync(req);
+            var resBody = await res.Content.ReadAsStringAsync();
+
+            if (!res.IsSuccessStatusCode)
+            {
+                Console.WriteLine($"[BREVO LOI {(int)res.StatusCode}] {resBody}");
+                throw new Exception($"Gui email that bai: {(int)res.StatusCode} - {resBody}");
+            }
+            Console.WriteLine($"[EMAIL DA GUI qua Brevo] -> {email} | {subject}");
         }
     }
 

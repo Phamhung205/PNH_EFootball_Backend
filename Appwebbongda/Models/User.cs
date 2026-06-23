@@ -35,6 +35,9 @@ namespace Appwebbongda.Models
         [MaxLength(20)]
         public string Role { get; set; } = "User";
 
+        // ANH DAI DIEN (URL hoac base64 anh upload tu may). Null neu chua co.
+        public string? AvatarUrl { get; set; }
+
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     }
 }

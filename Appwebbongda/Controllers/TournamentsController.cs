@@ -34,6 +34,7 @@ namespace Appwebbongda.Controllers
             public string? Description { get; set; }
             public int? MaxTeams { get; set; }
             public DateTime? StartDate { get; set; }
+            public string? LogoUrl { get; set; }
         }
 
         /// <summary>
@@ -83,7 +84,8 @@ namespace Appwebbongda.Controllers
                 Status = dto.Status ?? "Sắp khởi tranh",
                 Description = dto.Description,
                 MaxTeams = dto.MaxTeams ?? 16,
-                StartDate = dto.StartDate ?? DateTime.Now
+                StartDate = dto.StartDate ?? DateTime.Now,
+                LogoUrl = dto.LogoUrl
             };
 
             _context.Tournaments.Add(tournament);
@@ -109,6 +111,7 @@ namespace Appwebbongda.Controllers
             if (dto.Description != null) tournament.Description = dto.Description;
             if (dto.MaxTeams.HasValue) tournament.MaxTeams = dto.MaxTeams.Value;
             if (dto.StartDate.HasValue) tournament.StartDate = dto.StartDate.Value;
+            if (dto.LogoUrl != null) tournament.LogoUrl = dto.LogoUrl;
 
             await _context.SaveChangesAsync();
             return Ok(new { success = true, message = "Cập nhật giải đấu thành công!", data = tournament });
