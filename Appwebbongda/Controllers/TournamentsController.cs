@@ -126,26 +126,17 @@ namespace Appwebbongda.Controllers
         {
             try
             {
-                var tournament = await _context.Tournaments.FindAsync(id);
-                if (tournament == null)
+                var exists = await _context.Tournaments.AnyAsync(t => t.TournamentId == id);
+                if (!exists)
                     return NotFound(new { success = false, message = $"Không tìm thấy giải đấu ID = {id}." });
 
-                // Phai xoa du lieu LIEN KET truoc (tranh loi khoa ngoai):
-                // 1. Xoa tat ca tran dau cua giai
-                var matches = await _context.Matches.Where(m => m.TournamentId == id).ToListAsync();
-                if (matches.Count > 0) _context.Matches.RemoveRange(matches);
-
-                // 2. Xoa tat ca doi cua giai
-                var teams = await _context.Teams.Where(t => t.TournamentId == id).ToListAsync();
-                if (teams.Count > 0) _context.Teams.RemoveRange(teams);
-
-                // 3. Xoa tat ca bang (group) cua giai
-                var groups = await _context.Groups.Where(g => g.TournamentId == id).ToListAsync();
-                if (groups.Count > 0) _context.Groups.RemoveRange(groups);
-
-                // 4. Cuoi cung xoa giai
-                _context.Tournaments.Remove(tournament);
-                await _context.SaveChangesAsync();
+                // Xoa NHANH bang ExecuteDeleteAsync: chay thang lenh DELETE trong SQL,
+                // KHONG tai du lieu ve RAM (nhanh hon nhieu voi giai nhieu tran/doi).
+                // Thu tu: tran -> doi -> bang -> giai (tranh loi khoa ngoai).
+                await _context.Matches.Where(m => m.TournamentId == id).ExecuteDeleteAsync();
+                await _context.Teams.Where(t => t.TournamentId == id).ExecuteDeleteAsync();
+                await _context.Groups.Where(g => g.TournamentId == id).ExecuteDeleteAsync();
+                await _context.Tournaments.Where(t => t.TournamentId == id).ExecuteDeleteAsync();
 
                 return Ok(new { success = true, message = "Xóa giải đấu thành công!" });
             }
