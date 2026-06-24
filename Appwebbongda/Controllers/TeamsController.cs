@@ -151,14 +151,6 @@ namespace Appwebbongda.Controllers
                 if (dto?.names == null || dto.names.Count == 0)
                     return Ok(new { success = true, message = "Không có đội nào để thêm.", added = 0 });
 
-                // Ten can them (chuan hoa, loai trung)
-                var wantNames = dto.names
-                    .Where(n => !string.IsNullOrWhiteSpace(n))
-                    .Select(n => n.Trim())
-                    .GroupBy(n => n.ToLowerInvariant())
-                    .Select(g => g.First())
-                    .ToList();
-
                 // Doi da co trong giai (de bo qua)
                 var existing = await _context.Teams
                     .Where(t => t.TournamentId == tournamentId && t.Name != null)
@@ -166,24 +158,8 @@ namespace Appwebbongda.Controllers
                     .ToListAsync();
                 var existingSet = new HashSet<string>(existing);
 
-                // Lay logo cho cac ten can them - CHI lay dung doi can (loc trong SQL,
-                // KHONG keo het logo base64 ve -> nhanh). So khop ten o C#.
-                var wantNamesList = wantNames.ToList(); // ten goc (chua lower)
-                var withLogo = await _context.Teams
-                    .AsNoTracking()
-                    .Where(t => t.LogoUrl != null && t.LogoUrl != "" && t.Name != null
-                                && wantNamesList.Contains(t.Name))
-                    .Select(t => new { t.Name, t.LogoUrl })
-                    .ToListAsync();
-                var logoMap = new Dictionary<string, string>();
-                foreach (var t in withLogo)
-                {
-                    var key = t.Name!.Trim().ToLowerInvariant();
-                    if (!logoMap.ContainsKey(key))
-                        logoMap[key] = t.LogoUrl!;
-                }
-
-                // Tao danh sach doi moi (bo qua doi da co)
+                // Tao danh sach doi moi (bo qua doi da co). KHONG kem logo de THEM NHANH
+                // (logo base64 lon lam INSERT cham). Co the bo sung logo sau.
                 var newTeams = new List<Team>();
                 foreach (var name in wantNames)
                 {
@@ -192,7 +168,7 @@ namespace Appwebbongda.Controllers
                     newTeams.Add(new Team
                     {
                         Name = name,
-                        LogoUrl = logoMap.ContainsKey(key) ? logoMap[key] : null,
+                        LogoUrl = null,
                         TournamentId = tournamentId,
                         Status = "Đã duyệt"
                     });
