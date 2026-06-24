@@ -151,6 +151,14 @@ namespace Appwebbongda.Controllers
                 if (dto?.names == null || dto.names.Count == 0)
                     return Ok(new { success = true, message = "Không có đội nào để thêm.", added = 0 });
 
+                // Ten can them (chuan hoa, loai trung)
+                var wantNames = dto.names
+                    .Where(n => !string.IsNullOrWhiteSpace(n))
+                    .Select(n => n.Trim())
+                    .GroupBy(n => n.ToLowerInvariant())
+                    .Select(g => g.First())
+                    .ToList();
+
                 // Doi da co trong giai (de bo qua)
                 var existing = await _context.Teams
                     .Where(t => t.TournamentId == tournamentId && t.Name != null)
