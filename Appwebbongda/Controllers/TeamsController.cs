@@ -166,18 +166,20 @@ namespace Appwebbongda.Controllers
                     .ToListAsync();
                 var existingSet = new HashSet<string>(existing);
 
-                // Lay logo cho cac ten can them (1 lan, tu thu vien)
-                var lowerWanted = wantNames.Select(n => n.ToLowerInvariant()).ToHashSet();
+                // Lay logo cho cac ten can them - CHI lay dung doi can (loc trong SQL,
+                // KHONG keo het logo base64 ve -> nhanh). So khop ten o C#.
+                var wantNamesList = wantNames.ToList(); // ten goc (chua lower)
                 var withLogo = await _context.Teams
                     .AsNoTracking()
-                    .Where(t => t.LogoUrl != null && t.LogoUrl != "" && t.Name != null)
+                    .Where(t => t.LogoUrl != null && t.LogoUrl != "" && t.Name != null
+                                && wantNamesList.Contains(t.Name))
                     .Select(t => new { t.Name, t.LogoUrl })
                     .ToListAsync();
                 var logoMap = new Dictionary<string, string>();
                 foreach (var t in withLogo)
                 {
                     var key = t.Name!.Trim().ToLowerInvariant();
-                    if (lowerWanted.Contains(key) && !logoMap.ContainsKey(key))
+                    if (!logoMap.ContainsKey(key))
                         logoMap[key] = t.LogoUrl!;
                 }
 
