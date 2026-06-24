@@ -166,8 +166,21 @@ namespace Appwebbongda.Controllers
                     .ToListAsync();
                 var existingSet = new HashSet<string>(existing);
 
-                // Tao danh sach doi moi (bo qua doi da co). KHONG kem logo de THEM NHANH
-                // (logo base64 lon lam INSERT cham). Co the bo sung logo sau.
+                // Lay logo cho cac ten can them - chi lay dung doi can (loc trong SQL)
+                var withLogo = await _context.Teams
+                    .AsNoTracking()
+                    .Where(t => t.LogoUrl != null && t.LogoUrl != "" && t.Name != null
+                                && wantNames.Contains(t.Name))
+                    .Select(t => new { t.Name, t.LogoUrl })
+                    .ToListAsync();
+                var logoMap = new Dictionary<string, string>();
+                foreach (var t in withLogo)
+                {
+                    var key = t.Name!.Trim().ToLowerInvariant();
+                    if (!logoMap.ContainsKey(key)) logoMap[key] = t.LogoUrl!;
+                }
+
+                // Tao danh sach doi moi (bo qua doi da co), kem logo
                 var newTeams = new List<Team>();
                 foreach (var name in wantNames)
                 {
@@ -176,7 +189,7 @@ namespace Appwebbongda.Controllers
                     newTeams.Add(new Team
                     {
                         Name = name,
-                        LogoUrl = null,
+                        LogoUrl = logoMap.ContainsKey(key) ? logoMap[key] : null,
                         TournamentId = tournamentId,
                         Status = "Đã duyệt"
                     });
