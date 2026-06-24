@@ -124,13 +124,35 @@ namespace Appwebbongda.Controllers
         [Authorize(Roles = "Admin")]
         public async Task<IActionResult> Delete(int id)
         {
-            var tournament = await _context.Tournaments.FindAsync(id);
-            if (tournament == null)
-                return NotFound(new { success = false, message = $"Không tìm thấy giải đấu ID = {id}." });
+            try
+            {
+                var tournament = await _context.Tournaments.FindAsync(id);
+                if (tournament == null)
+                    return NotFound(new { success = false, message = $"Không tìm thấy giải đấu ID = {id}." });
 
-            _context.Tournaments.Remove(tournament);
-            await _context.SaveChangesAsync();
-            return Ok(new { success = true, message = "Xóa giải đấu thành công!" });
+                // Phai xoa du lieu LIEN KET truoc (tranh loi khoa ngoai):
+                // 1. Xoa tat ca tran dau cua giai
+                var matches = await _context.Matches.Where(m => m.TournamentId == id).ToListAsync();
+                if (matches.Count > 0) _context.Matches.RemoveRange(matches);
+
+                // 2. Xoa tat ca doi cua giai
+                var teams = await _context.Teams.Where(t => t.TournamentId == id).ToListAsync();
+                if (teams.Count > 0) _context.Teams.RemoveRange(teams);
+
+                // 3. Xoa tat ca bang (group) cua giai
+                var groups = await _context.Groups.Where(g => g.TournamentId == id).ToListAsync();
+                if (groups.Count > 0) _context.Groups.RemoveRange(groups);
+
+                // 4. Cuoi cung xoa giai
+                _context.Tournaments.Remove(tournament);
+                await _context.SaveChangesAsync();
+
+                return Ok(new { success = true, message = "Xóa giải đấu thành công!" });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { success = false, message = "Lỗi khi xóa giải: " + (ex.InnerException?.Message ?? ex.Message) });
+            }
         }
 
         /// <summary>
