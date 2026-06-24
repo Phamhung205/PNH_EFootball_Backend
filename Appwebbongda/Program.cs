@@ -12,7 +12,11 @@ var builder = WebApplication.CreateBuilder(args);
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
     ?? throw new InvalidOperationException("Thiếu ConnectionStrings__DefaultConnection.");
 builder.Services.AddDbContext<AppDbContext>(options =>
-    options.UseSqlServer(connectionString, sql => sql.EnableRetryOnFailure()));
+    options.UseSqlServer(connectionString, sql =>
+    {
+        sql.EnableRetryOnFailure();
+        sql.CommandTimeout(120); // Cho phep lenh SQL chay toi 120s (MonsterASP free cham, xoa giai nhieu du lieu)
+    }));
 
 // 2. Services
 builder.Services.AddScoped<IJwtService, JwtService>();
