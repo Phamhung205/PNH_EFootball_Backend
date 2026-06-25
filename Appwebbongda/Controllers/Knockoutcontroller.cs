@@ -41,6 +41,9 @@ namespace Appwebbongda.Controllers
             public string? awayLogo { get; set; }
             public int? homeScore { get; set; }
             public int? awayScore { get; set; }
+            // Ti so luan luu (neu tran hoa va da da pen). null neu khong co.
+            public int? homePenalty { get; set; }
+            public int? awayPenalty { get; set; }
             public string status { get; set; } = "Scheduled";
         }
 
@@ -180,7 +183,14 @@ namespace Appwebbongda.Controllers
         // PUT /api/knockout/match/{matchId}  body: { homeScore, awayScore }
         //   Luu ti so. Neu co ket qua -> tu tao/cap nhat tran vong sau (day doi thang len).
         // ─────────────────────────────────────────────────────────────
-        public class ScoreDto { public int? homeScore { get; set; } public int? awayScore { get; set; } }
+        public class ScoreDto
+        {
+            public int? homeScore { get; set; }
+            public int? awayScore { get; set; }
+            // Ti so luan luu (penalty) khi hoa sau 90' (+hiep phu). Vd 4-3.
+            public int? homePenalty { get; set; }
+            public int? awayPenalty { get; set; }
+        }
 
         [HttpPut("knockout/match/{matchId}")]
         [Authorize(Roles = "Admin")]
@@ -194,8 +204,32 @@ namespace Appwebbongda.Controllers
 
                 match.HomeScore = dto.homeScore;
                 match.AwayScore = dto.awayScore;
-                bool decided = dto.homeScore != null && dto.awayScore != null && dto.homeScore != dto.awayScore;
-                match.Status = decided ? "Finished" : "Scheduled";
+
+                bool hasScore = dto.homeScore != null && dto.awayScore != null;
+                bool isDraw = hasScore && dto.homeScore == dto.awayScore;
+                bool hasPen = dto.homePenalty != null && dto.awayPenalty != null
+                              && dto.homePenalty != dto.awayPenalty;
+
+                // Quyet dinh tran da xong + ai thang:
+                // - Ti so chinh khac nhau -> xong, doi ghi nhieu hon thang.
+                // - Hoa + co luan luu (pen khac nhau) -> xong, doi thang pen di tiep.
+                //   Luu pen vao Status duoi dang "Finished|pen:H-A" (khong can them cot DB).
+                bool decided;
+                if (hasScore && dto.homeScore != dto.awayScore)
+                {
+                    decided = true;
+                    match.Status = "Finished";
+                }
+                else if (isDraw && hasPen)
+                {
+                    decided = true;
+                    match.Status = $"Finished|pen:{dto.homePenalty}-{dto.awayPenalty}";
+                }
+                else
+                {
+                    decided = false;
+                    match.Status = "Scheduled";
+                }
                 await _context.SaveChangesAsync();
 
                 // Day doi thang len vong sau (co bao ve ben trong)
@@ -299,8 +333,24 @@ namespace Appwebbongda.Controllers
         /// Doi thang 1 tran (null neu hoa/chua co ket qua)
         private static int? WinnerId(Match m)
         {
-            if (m.HomeScore == null || m.AwayScore == null || m.HomeScore == m.AwayScore) return null;
-            return m.HomeScore > m.AwayScore ? m.HomeTeamId : m.AwayTeamId;
+            if (m.HomeScore == null || m.AwayScore == null) return null;
+            // Ti so chinh khac nhau -> doi ghi nhieu hon thang
+            if (m.HomeScore != m.AwayScore)
+                return m.HomeScore > m.AwayScore ? m.HomeTeamId : m.AwayTeamId;
+            // Hoa -> xet luan luu luu trong Status: "Finished|pen:H-A"
+            if (m.Status != null && m.Status.Contains("pen:"))
+            {
+                try
+                {
+                    var penPart = m.Status.Substring(m.Status.IndexOf("pen:") + 4); // "H-A"
+                    var parts = penPart.Split('-');
+                    if (parts.Length == 2 &&
+                        int.TryParse(parts[0], out int hp) && int.TryParse(parts[1], out int ap) && hp != ap)
+                        return hp > ap ? m.HomeTeamId : m.AwayTeamId;
+                }
+                catch { return null; }
+            }
+            return null; // hoa va chua co luan luu -> chua xac dinh
         }
 
         /// Lay Top N doi moi bang dua tren BXH (diem -> hieu so -> ban thang)
@@ -444,6 +494,23 @@ namespace Appwebbongda.Controllers
                 {
                     tmap.TryGetValue(m.HomeTeamId, out var home);
                     tmap.TryGetValue(m.AwayTeamId, out var away);
+
+                    // Tach ti so luan luu tu Status ("Finished|pen:H-A") neu co
+                    int? homePen = null, awayPen = null;
+                    string cleanStatus = m.Status ?? "Scheduled";
+                    if (cleanStatus.Contains("pen:"))
+                    {
+                        try
+                        {
+                            var penPart = cleanStatus.Substring(cleanStatus.IndexOf("pen:") + 4);
+                            var parts = penPart.Split('-');
+                            if (parts.Length == 2 && int.TryParse(parts[0], out int hp) && int.TryParse(parts[1], out int ap))
+                            { homePen = hp; awayPen = ap; }
+                        }
+                        catch { }
+                        cleanStatus = "Finished"; // status hien thi gon gang
+                    }
+
                     list.Add(new KnockoutMatchDto
                     {
                         matchId = m.MatchId,
@@ -457,7 +524,9 @@ namespace Appwebbongda.Controllers
                         awayLogo = away?.LogoUrl,
                         homeScore = m.HomeScore,
                         awayScore = m.AwayScore,
-                        status = m.Status
+                        homePenalty = homePen,
+                        awayPenalty = awayPen,
+                        status = cleanStatus
                     });
                 }
             }
