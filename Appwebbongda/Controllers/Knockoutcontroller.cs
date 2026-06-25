@@ -22,6 +22,7 @@ namespace Appwebbongda.Controllers
     {
         private readonly AppDbContext _context;
         private const int KNOCKOUT_BASE = 100; // Round >= 100 => tran knockout
+        private const int THIRD_PLACE_ROUND = 999; // Round dac biet cho tran tranh hang 3
 
         public KnockoutController(AppDbContext context)
         {
@@ -45,6 +46,7 @@ namespace Appwebbongda.Controllers
             public int? homePenalty { get; set; }
             public int? awayPenalty { get; set; }
             public string status { get; set; } = "Scheduled";
+            public bool isThirdPlace { get; set; } = false; // true neu la tran tranh hang 3
         }
 
         // ─────────────────────────────────────────────────────────────
@@ -349,6 +351,52 @@ namespace Appwebbongda.Controllers
                 _context.Matches.Remove(target);
                 await _context.SaveChangesAsync();
             }
+
+            // ─── TRAN TRANH HANG 3 ───
+            // Neu day la BAN KET (vong nay co dung 2 tran -> vong sau la chung ket 1 tran),
+            // tao them tran tranh hang 3 voi 2 doi THUA ban ket.
+            if (sameRound.Count == 2)
+            {
+                int? loseA = LoserId(matchA);
+                int? loseB = matchB != null ? LoserId(matchB) : (int?)null;
+                if (loseA != null && !validTeamIds.Contains(loseA.Value)) loseA = null;
+                if (loseB != null && !validTeamIds.Contains(loseB.Value)) loseB = null;
+
+                var thirdExisting = await _context.Matches
+                    .FirstOrDefaultAsync(m => m.TournamentId == match.TournamentId && m.Round == THIRD_PLACE_ROUND);
+
+                if (loseA != null && loseB != null)
+                {
+                    if (thirdExisting == null)
+                    {
+                        _context.Matches.Add(new Match
+                        {
+                            TournamentId = match.TournamentId,
+                            HomeTeamId = loseA.Value,
+                            AwayTeamId = loseB.Value,
+                            Round = THIRD_PLACE_ROUND,
+                            Status = "Scheduled"
+                        });
+                        await _context.SaveChangesAsync();
+                    }
+                    else
+                    {
+                        bool changed = thirdExisting.HomeTeamId != loseA.Value || thirdExisting.AwayTeamId != loseB.Value;
+                        if (changed)
+                        {
+                            thirdExisting.HomeTeamId = loseA.Value;
+                            thirdExisting.AwayTeamId = loseB.Value;
+                            thirdExisting.HomeScore = null; thirdExisting.AwayScore = null; thirdExisting.Status = "Scheduled";
+                            await _context.SaveChangesAsync();
+                        }
+                    }
+                }
+                else if (thirdExisting != null)
+                {
+                    _context.Matches.Remove(thirdExisting);
+                    await _context.SaveChangesAsync();
+                }
+            }
         }
 
         /// Doi thang 1 tran (null neu hoa/chua co ket qua)
@@ -372,6 +420,14 @@ namespace Appwebbongda.Controllers
                 catch { return null; }
             }
             return null; // hoa va chua co luan luu -> chua xac dinh
+        }
+
+        /// Doi THUA 1 tran (null neu hoa/chua co ket qua). Dung cho tran tranh hang 3.
+        private static int? LoserId(Match m)
+        {
+            int? w = WinnerId(m);
+            if (w == null) return null;
+            return w.Value == m.HomeTeamId ? m.AwayTeamId : m.HomeTeamId;
         }
 
         /// Lay Top N doi moi bang dua tren BXH (diem -> hieu so -> ban thang)
@@ -547,6 +603,7 @@ namespace Appwebbongda.Controllers
                         awayScore = m.AwayScore,
                         homePenalty = homePen,
                         awayPenalty = awayPen,
+                        isThirdPlace = m.Round == THIRD_PLACE_ROUND,
                         status = cleanStatus
                     });
                 }
