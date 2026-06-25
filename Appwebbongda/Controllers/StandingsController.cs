@@ -110,25 +110,70 @@ namespace Appwebbongda.Controllers
                     GoalDiff = goalDiff,
                     Points = points
                 };
-            })
-            // 5. Sắp xếp giảm dần theo: Điểm số -> Hiệu số -> Tổng số bàn thắng -> Alphabet Tên Đội
-            .OrderByDescending(s => s.Points)
-            .ThenByDescending(s => s.GoalDiff)
-            .ThenByDescending(s => s.GoalsFor)
-            .ThenBy(s => s.TeamName)
-            .ToList();
+            }).ToList();
+
+            // 5. Sắp xếp theo: Điểm -> Hiệu số -> Tổng bàn thắng -> ĐỐI ĐẦU trực tiếp
+            // Sắp 3 mức đầu trước, sau đó dùng đối đầu để phân định khi vẫn bằng nhau.
+            var sorted = standingsList
+                .OrderByDescending(s => s.Points)
+                .ThenByDescending(s => s.GoalDiff)
+                .ThenByDescending(s => s.GoalsFor)
+                .ToList();
+
+            // Ham tinh diem doi dau giua 2 doi (chi xet cac tran giua chinh 2 doi do)
+            // Tra ve: >0 neu teamA tren teamB, <0 neu duoi, 0 neu van hoa
+            int HeadToHead(int teamAId, int teamBId)
+            {
+                var h2h = matches.Where(m =>
+                    (m.HomeTeamId == teamAId && m.AwayTeamId == teamBId) ||
+                    (m.HomeTeamId == teamBId && m.AwayTeamId == teamAId)).ToList();
+                if (h2h.Count == 0) return 0;
+
+                int aPoints = 0, bPoints = 0, aGoals = 0, bGoals = 0;
+                foreach (var m in h2h)
+                {
+                    int hs = m.HomeScore ?? 0, as_ = m.AwayScore ?? 0;
+                    // Quy ve goc nhin teamA
+                    int aScore = m.HomeTeamId == teamAId ? hs : as_;
+                    int bScore = m.HomeTeamId == teamAId ? as_ : hs;
+                    aGoals += aScore; bGoals += bScore;
+                    if (aScore > bScore) aPoints += 3;
+                    else if (aScore < bScore) bPoints += 3;
+                    else { aPoints += 1; bPoints += 1; }
+                }
+                if (aPoints != bPoints) return aPoints - bPoints;     // diem doi dau
+                if (aGoals != bGoals) return aGoals - bGoals;         // hieu so doi dau
+                return 0;
+            }
+
+            // Sap xep lai cac nhom bang diem+hieu so+ban thang bang doi dau (bubble sort don gian)
+            for (int i = 0; i < sorted.Count - 1; i++)
+            {
+                for (int j = 0; j < sorted.Count - 1 - i; j++)
+                {
+                    var x = sorted[j]; var y = sorted[j + 1];
+                    // Chi so sanh doi dau khi 2 doi bang het 3 chi so chinh
+                    bool tied = x.Points == y.Points && x.GoalDiff == y.GoalDiff && x.GoalsFor == y.GoalsFor;
+                    if (tied)
+                    {
+                        int cmp = HeadToHead(x.TeamId, y.TeamId);
+                        if (cmp < 0) { sorted[j] = y; sorted[j + 1] = x; } // y tren x
+                    }
+                }
+            }
+            var standingsListSorted = sorted;
 
             // 6. Gán thứ hạng (Rank) sau khi đã sắp xếp xong
-            for (int i = 0; i < standingsList.Count; i++)
+            for (int i = 0; i < standingsListSorted.Count; i++)
             {
-                standingsList[i].Rank = i + 1;
+                standingsListSorted[i].Rank = i + 1;
             }
 
             return Ok(new
             {
                 success = true,
                 message = $"Lấy bảng xếp hạng giải đấu \"{tournament.Name}\" thành công.",
-                data = standingsList
+                data = standingsListSorted
             });
         }
     }

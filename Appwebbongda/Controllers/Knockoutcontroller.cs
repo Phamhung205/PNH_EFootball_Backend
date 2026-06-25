@@ -85,6 +85,9 @@ namespace Appwebbongda.Controllers
         {
             public int teamsPerGroup { get; set; } = 2;
             public List<int>? manualTeamIds { get; set; } = null;
+            // Che do World Cup: 2 doi dau moi bang + N doi hang ba tot nhat (vd 8)
+            // Neu bestThirdCount > 0 -> dung logic World Cup.
+            public int bestThirdCount { get; set; } = 0;
         }
 
         [HttpPost("knockout/{tournamentId}/generate")]
@@ -103,7 +106,34 @@ namespace Appwebbongda.Controllers
             }
             else
             {
-                qualifiedIds = await GetTopTeamsPerGroup(tournamentId, dto.teamsPerGroup <= 0 ? 2 : dto.teamsPerGroup);
+                // TU DONG quyet dinh: lay 2 doi dau moi bang truoc.
+                var top2 = await GetTopTeamsPerGroup(tournamentId, 2);
+                int groupCount = await CountGroups(tournamentId);
+
+                // Neu so doi (2/bang) la luy thua cua 2 (16, 32...) -> dung luon, KHONG can hang ba.
+                // Vi du 8 bang x 2 = 16 (dep) -> knock-out 16 doi.
+                // Neu KHONG dep (vd 12 bang x 2 = 24) -> lay them hang ba cho du luy thua 2 gan nhat (32).
+                bool isPowerOfTwo = top2.Count >= 2 && (top2.Count & (top2.Count - 1)) == 0;
+
+                if (isPowerOfTwo || groupCount < 5)
+                {
+                    // Du dep, hoac it bang (≤4 bang) -> dung 2 doi/bang nhu thuong
+                    qualifiedIds = top2;
+                }
+                else
+                {
+                    // Tinh so hang ba can lay de dat luy thua 2 gan nhat (vd 24 -> can them 8 = 32)
+                    int target = 1;
+                    while (target * 2 <= top2.Count + groupCount) target *= 2; // luy thua 2 lon nhat <= tong co the
+                    int needThirds = target - top2.Count;
+                    if (needThirds < 0) needThirds = 0;
+                    if (needThirds > groupCount) needThirds = groupCount;
+
+                    if (needThirds > 0)
+                        qualifiedIds = await GetWorldCupQualified(tournamentId, needThirds);
+                    else
+                        qualifiedIds = top2;
+                }
             }
 
             if (qualifiedIds.Count < 2)
@@ -274,6 +304,82 @@ namespace Appwebbongda.Controllers
         }
 
         /// Lay Top N doi moi bang dua tren BXH (diem -> hieu so -> ban thang)
+        // Dem so bang (group) co doi trong giai
+        private async Task<int> CountGroups(int tournamentId)
+        {
+            var teams = await _context.Teams
+                .Where(t => t.TournamentId == tournamentId && t.GroupName != null && t.GroupName != "")
+                .ToListAsync();
+            return teams.Select(t => t.GroupName).Distinct().Count();
+        }
+
+        // Logic World Cup: lay 2 doi dau MOI bang + N doi hang ba tot nhat.
+        // Vi du 12 bang: 12 nhat + 12 nhi + 8 hang ba tot nhat = 32 doi.
+        private async Task<List<int>> GetWorldCupQualified(int tournamentId, int bestThirdCount)
+        {
+            var teams = await _context.Teams
+                .Where(t => t.TournamentId == tournamentId)
+                .ToListAsync();
+
+            var matches = await _context.Matches
+                .Where(m => m.TournamentId == tournamentId && m.Round < KNOCKOUT_BASE
+                            && m.HomeScore != null && m.AwayScore != null)
+                .ToListAsync();
+
+            // Tinh chi so [Pts, GD, GF] cho moi doi
+            var mut = teams.ToDictionary(t => t.TeamId, t => new int[] { 0, 0, 0 });
+            foreach (var m in matches)
+            {
+                int hs = m.HomeScore!.Value, aws = m.AwayScore!.Value;
+                if (mut.ContainsKey(m.HomeTeamId))
+                {
+                    mut[m.HomeTeamId][1] += (hs - aws);
+                    mut[m.HomeTeamId][2] += hs;
+                    mut[m.HomeTeamId][0] += hs > aws ? 3 : (hs == aws ? 1 : 0);
+                }
+                if (mut.ContainsKey(m.AwayTeamId))
+                {
+                    mut[m.AwayTeamId][1] += (aws - hs);
+                    mut[m.AwayTeamId][2] += aws;
+                    mut[m.AwayTeamId][0] += aws > hs ? 3 : (hs == aws ? 1 : 0);
+                }
+            }
+
+            var byGroup = teams.GroupBy(t => t.GroupName ?? "");
+
+            var firsts = new List<int>();   // doi nhat moi bang
+            var seconds = new List<int>();  // doi nhi moi bang
+            var thirds = new List<Team>();  // doi hang ba moi bang (de so sanh chon tot nhat)
+
+            foreach (var g in byGroup.OrderBy(g => g.Key))
+            {
+                var ranked = g
+                    .OrderByDescending(t => mut[t.TeamId][0]) // Pts
+                    .ThenByDescending(t => mut[t.TeamId][1])  // GD
+                    .ThenByDescending(t => mut[t.TeamId][2])  // GF
+                    .ToList();
+                if (ranked.Count >= 1) firsts.Add(ranked[0].TeamId);
+                if (ranked.Count >= 2) seconds.Add(ranked[1].TeamId);
+                if (ranked.Count >= 3) thirds.Add(ranked[2]);
+            }
+
+            // Chon N doi hang ba tot nhat (so sanh giua cac doi hang ba)
+            var bestThirds = thirds
+                .OrderByDescending(t => mut[t.TeamId][0]) // Pts
+                .ThenByDescending(t => mut[t.TeamId][1])  // GD
+                .ThenByDescending(t => mut[t.TeamId][2])  // GF
+                .Take(bestThirdCount)
+                .Select(t => t.TeamId)
+                .ToList();
+
+            // Gop: nhat -> nhi -> hang ba tot nhat
+            var result = new List<int>();
+            result.AddRange(firsts);
+            result.AddRange(seconds);
+            result.AddRange(bestThirds);
+            return result;
+        }
+
         private async Task<List<int>> GetTopTeamsPerGroup(int tournamentId, int topN)
         {
             var teams = await _context.Teams
