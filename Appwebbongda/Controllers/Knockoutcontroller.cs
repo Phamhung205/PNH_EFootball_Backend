@@ -93,6 +93,27 @@ namespace Appwebbongda.Controllers
             public int bestThirdCount { get; set; } = 0;
         }
 
+        // ─────────────────────────────────────────────────────────────
+        // DELETE /api/knockout/{tournamentId}  -> Xoa HET tran knockout cua giai
+        //   (de tao lai tu dau). Khong dung toi vong bang.
+        // ─────────────────────────────────────────────────────────────
+        [HttpDelete("knockout/{tournamentId}")]
+        [Authorize(Roles = "Admin")]
+        public async Task<IActionResult> ClearKnockout(int tournamentId)
+        {
+            try
+            {
+                var ko = _context.Matches.Where(m => m.TournamentId == tournamentId && m.Round >= KNOCKOUT_BASE);
+                _context.Matches.RemoveRange(ko);
+                await _context.SaveChangesAsync();
+                return Ok(new { success = true, message = "Đã xóa toàn bộ sơ đồ knockout." });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { success = false, message = "Lỗi khi xóa knockout: " + (ex.InnerException?.Message ?? ex.Message) });
+            }
+        }
+
         [HttpPost("knockout/{tournamentId}/generate")]
         [Authorize(Roles = "Admin")]
         public async Task<IActionResult> Generate(int tournamentId, [FromBody] GenerateDto dto)
