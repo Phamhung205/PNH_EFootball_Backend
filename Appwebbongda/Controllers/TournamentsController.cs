@@ -130,19 +130,13 @@ namespace Appwebbongda.Controllers
                 if (tournament == null)
                     return NotFound(new { success = false, message = $"Không tìm thấy giải đấu ID = {id}." });
 
-                // Xoa du lieu lien ket truoc (tran -> doi -> bang), roi xoa giai.
-                // Dung RemoveRange (tuong thich moi phien ban EF / SQL Server).
-                var matches = await _context.Matches.Where(m => m.TournamentId == id).ToListAsync();
-                if (matches.Count > 0) { _context.Matches.RemoveRange(matches); await _context.SaveChangesAsync(); }
-
-                var teams = await _context.Teams.Where(t => t.TournamentId == id).ToListAsync();
-                if (teams.Count > 0) { _context.Teams.RemoveRange(teams); await _context.SaveChangesAsync(); }
-
-                var groups = await _context.Groups.Where(g => g.TournamentId == id).ToListAsync();
-                if (groups.Count > 0) { _context.Groups.RemoveRange(groups); await _context.SaveChangesAsync(); }
-
-                _context.Tournaments.Remove(tournament);
-                await _context.SaveChangesAsync();
+                // Xoa bang SQL tho (nhanh: chay thang trong DB, khong tai du lieu ve RAM).
+                // Thu tu: tran -> doi -> bang -> giai (tranh loi khoa ngoai).
+                // Dung tham so {0} de an toan (chong SQL injection).
+                await _context.Database.ExecuteSqlRawAsync("DELETE FROM Matches WHERE TournamentId = {0}", id);
+                await _context.Database.ExecuteSqlRawAsync("DELETE FROM Teams WHERE TournamentId = {0}", id);
+                await _context.Database.ExecuteSqlRawAsync("DELETE FROM Groups WHERE TournamentId = {0}", id);
+                await _context.Database.ExecuteSqlRawAsync("DELETE FROM Tournaments WHERE TournamentId = {0}", id);
 
                 return Ok(new { success = true, message = "Xóa giải đấu thành công!" });
             }
