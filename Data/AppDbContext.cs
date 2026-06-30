@@ -13,6 +13,7 @@ namespace Appwebbongda.Data
         public DbSet<Team> Teams { get; set; }
         public DbSet<Match> Matches { get; set; }
         public DbSet<User> Users { get; set; }
+        public DbSet<Registration> Registrations { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -41,6 +42,28 @@ namespace Appwebbongda.Data
                 .WithMany()
                 .HasForeignKey(m => m.TournamentId)
                 .OnDelete(DeleteBehavior.Cascade);
+
+            // 4. Cau hinh bang Registration (dang ky tham du giai).
+            // Xoa giai -> xoa luon cac dang ky cua giai do.
+            modelBuilder.Entity<Registration>()
+                .HasOne(r => r.Tournament)
+                .WithMany()
+                .HasForeignKey(r => r.TournamentId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // Lien ket User: KHONG cascade (tranh multiple cascade paths cua SQL Server)
+            modelBuilder.Entity<Registration>()
+                .HasOne(r => r.User)
+                .WithMany()
+                .HasForeignKey(r => r.UserId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            // Lien ket Team: KHONG cascade, cho phep null (chua chia doi)
+            modelBuilder.Entity<Registration>()
+                .HasOne(r => r.Team)
+                .WithMany()
+                .HasForeignKey(r => r.TeamId)
+                .OnDelete(DeleteBehavior.Restrict);
         }
     }
 }

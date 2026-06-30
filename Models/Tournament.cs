@@ -25,6 +25,14 @@ namespace Appwebbongda.Models
 
         public string Status { get; set; } = "Sắp khởi tranh";
 
+        // ID nguoi tao giai (de BTC chi sua duoc giai do chinh minh tao).
+        // Null voi cac giai cu tao truoc khi co tinh nang nay.
+        public int? CreatedByUserId { get; set; }
+
+        // Cho phep nguoi dung DANG KY tham du giai nay hay khong (admin bat/tat).
+        // true = mo dang ky, false = dong. Mac dinh false.
+        public bool AllowRegistration { get; set; } = false;
+
         // Khởi tạo List rỗng để fix cảnh báo Null cho ICollection
         public ICollection<Group> Groups { get; set; } = new List<Group>();
         public ICollection<Team> Teams { get; set; } = new List<Team>();
