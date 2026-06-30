@@ -5,6 +5,7 @@ using Appwebbongda.Data;
 using Appwebbongda.Models;
 using System;
 using System.Linq;
+using System.Security.Claims;
 using System.Threading.Tasks;
 
 namespace Appwebbongda.Controllers
@@ -18,6 +19,30 @@ namespace Appwebbongda.Controllers
         public TournamentsController(AppDbContext context)
         {
             _context = context;
+        }
+
+        // Lay id user tu token
+        private int? GetCurrentUserId()
+        {
+            var sub = User.FindFirstValue(ClaimTypes.NameIdentifier)
+                   ?? User.FindFirstValue("sub");
+            return int.TryParse(sub, out var id) ? id : (int?)null;
+        }
+
+        // Lay role tu token (Admin / BTC / User)
+        private string GetCurrentRole() =>
+            User.FindFirstValue(ClaimTypes.Role) ?? "User";
+
+        private bool IsAdmin() =>
+            string.Equals(GetCurrentRole(), "Admin", StringComparison.OrdinalIgnoreCase);
+
+        // Kiem tra user hien tai co duoc phep sua/xoa giai nay khong.
+        // Admin: sua moi giai. BTC: chi sua giai do chinh minh tao.
+        private bool CanEditTournament(Tournament t)
+        {
+            if (IsAdmin()) return true;
+            var uid = GetCurrentUserId();
+            return uid != null && t.CreatedByUserId == uid.Value;
         }
 
         public class UpdateStatusDto
@@ -68,10 +93,10 @@ namespace Appwebbongda.Controllers
         }
 
         /// <summary>
-        /// POST /api/tournaments — Tạo giải đấu mới (CHỈ ADMIN)
+        /// POST /api/tournaments — Tạo giải đấu mới (ADMIN hoặc BTC)
         /// </summary>
         [HttpPost]
-        [Authorize(Roles = "Admin")]
+        [Authorize(Roles = "Admin,BTC")]
         public async Task<IActionResult> Create([FromBody] TournamentDto dto)
         {
             if (string.IsNullOrWhiteSpace(dto.Name))
@@ -85,7 +110,9 @@ namespace Appwebbongda.Controllers
                 Description = dto.Description,
                 MaxTeams = dto.MaxTeams ?? 16,
                 StartDate = dto.StartDate ?? DateTime.Now,
-                LogoUrl = dto.LogoUrl
+                LogoUrl = dto.LogoUrl,
+                // Luu nguoi tao giai (de BTC chi sua duoc giai cua minh)
+                CreatedByUserId = GetCurrentUserId()
             };
 
             _context.Tournaments.Add(tournament);
@@ -95,15 +122,19 @@ namespace Appwebbongda.Controllers
         }
 
         /// <summary>
-        /// PUT /api/tournaments/{id} — Cập nhật thông tin giải đấu (CHỈ ADMIN)
+        /// PUT /api/tournaments/{id} — Cập nhật thông tin giải đấu (ADMIN sửa mọi giải, BTC sửa giải mình tạo)
         /// </summary>
         [HttpPut("{id}")]
-        [Authorize(Roles = "Admin")]
+        [Authorize(Roles = "Admin,BTC")]
         public async Task<IActionResult> Update(int id, [FromBody] TournamentDto dto)
         {
             var tournament = await _context.Tournaments.FindAsync(id);
             if (tournament == null)
                 return NotFound(new { success = false, message = $"Không tìm thấy giải đấu ID = {id}." });
+
+            // BTC chi duoc sua giai do chinh minh tao
+            if (!CanEditTournament(tournament))
+                return StatusCode(403, new { success = false, message = "Ban chi duoc sua giai do chinh minh tao." });
 
             if (!string.IsNullOrWhiteSpace(dto.Name)) tournament.Name = dto.Name;
             if (!string.IsNullOrWhiteSpace(dto.Format)) tournament.Format = dto.Format;
@@ -118,10 +149,10 @@ namespace Appwebbongda.Controllers
         }
 
         /// <summary>
-        /// DELETE /api/tournaments/{id} — Xóa giải đấu (CHỈ ADMIN)
+        /// DELETE /api/tournaments/{id} — Xóa giải đấu (ADMIN xóa mọi giải, BTC xóa giải mình tạo)
         /// </summary>
         [HttpDelete("{id}")]
-        [Authorize(Roles = "Admin")]
+        [Authorize(Roles = "Admin,BTC")]
         public async Task<IActionResult> Delete(int id)
         {
             try
@@ -129,6 +160,10 @@ namespace Appwebbongda.Controllers
                 var tournament = await _context.Tournaments.FindAsync(id);
                 if (tournament == null)
                     return NotFound(new { success = false, message = $"Không tìm thấy giải đấu ID = {id}." });
+
+                // BTC chi duoc xoa giai do chinh minh tao
+                if (!CanEditTournament(tournament))
+                    return StatusCode(403, new { success = false, message = "Ban chi duoc xoa giai do chinh minh tao." });
 
                 // Xoa bang SQL tho (nhanh: chay thang trong DB, khong tai du lieu ve RAM).
                 // Thu tu: tran -> doi -> bang -> giai (tranh loi khoa ngoai).
@@ -147,10 +182,10 @@ namespace Appwebbongda.Controllers
         }
 
         /// <summary>
-        /// PUT /api/tournaments/{id}/status — Cập nhật trạng thái (CHỈ ADMIN)
+        /// PUT /api/tournaments/{id}/status — Cập nhật trạng thái (ADMIN mọi giải, BTC giải mình tạo)
         /// </summary>
         [HttpPut("{id}/status")]
-        [Authorize(Roles = "Admin")]
+        [Authorize(Roles = "Admin,BTC")]
         public async Task<IActionResult> UpdateStatus(int id, [FromBody] UpdateStatusDto dto)
         {
             try
@@ -161,6 +196,10 @@ namespace Appwebbongda.Controllers
                 var tournament = await _context.Tournaments.FindAsync(id);
                 if (tournament == null)
                     return NotFound(new { success = false, message = $"Không tìm thấy giải đấu ID = {id}." });
+
+                // BTC chi duoc doi trang thai giai do chinh minh tao
+                if (!CanEditTournament(tournament))
+                    return StatusCode(403, new { success = false, message = "Ban chi duoc sua giai do chinh minh tao." });
 
                 tournament.Status = dto.Status;
                 await _context.SaveChangesAsync();

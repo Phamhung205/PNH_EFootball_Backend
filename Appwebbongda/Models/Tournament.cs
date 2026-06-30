@@ -28,6 +28,10 @@ namespace Appwebbongda.Models
         // LOGO giai dau (URL hoac base64 anh upload tu may). Null neu chua co.
         public string? LogoUrl { get; set; }
 
+        // ID nguoi tao giai (de BTC chi sua duoc giai do chinh minh tao).
+        // Null voi cac giai cu tao truoc khi co tinh nang nay.
+        public int? CreatedByUserId { get; set; }
+
         // Khởi tạo List rỗng để fix cảnh báo Null cho ICollection
         public ICollection<Group> Groups { get; set; } = new List<Group>();
         public ICollection<Team> Teams { get; set; } = new List<Team>();
