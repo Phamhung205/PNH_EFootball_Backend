@@ -377,10 +377,62 @@ namespace Appwebbongda.Controllers
             if (winnerId != null && !match.IsThirdPlace)
             {
                 await AdvanceWinner(tournamentId, match, winnerId.Value);
+                // Neu day la tran BAN KET (vong ap chot) -> day doi THUA vao tran tranh hang 3
+                await HandleThirdPlace(tournamentId, match, winnerId.Value);
             }
 
             var data = await GetKnockoutMatches(tournamentId);
             return Ok(new { success = true, message = "Da luu ti so.", data });
+        }
+
+        // Khi tran ban ket xong: dua doi THUA vao tran tranh hang 3.
+        private async Task HandleThirdPlace(int tournamentId, Match semiMatch, int winnerId)
+        {
+            int currentRound = semiMatch.Round;
+
+            // Lay cac tran cung vong (khong tinh tran hang 3)
+            var roundMatches = await _context.Matches
+                .Where(m => m.TournamentId == tournamentId && m.Round == currentRound && !m.IsThirdPlace)
+                .OrderBy(m => m.MatchId)
+                .ToListAsync();
+
+            // Chi xu ly khi vong nay co DUNG 2 tran (ban ket). Vong khac bo qua.
+            if (roundMatches.Count != 2) return;
+
+            // Doi thua tran nay = doi con lai (khong phai winnerId)
+            int loserId = (semiMatch.HomeTeamId == winnerId) ? semiMatch.AwayTeamId : semiMatch.HomeTeamId;
+
+            // Trandh hang 3 dat cung Round voi ban ket, danh dau IsThirdPlace = true
+            var thirdMatch = await _context.Matches
+                .FirstOrDefaultAsync(m => m.TournamentId == tournamentId
+                                          && m.Round == currentRound && m.IsThirdPlace);
+
+            if (thirdMatch == null)
+            {
+                // Chua co -> tao moi voi 1 doi thua (doi con lai them sau khi ban ket kia xong)
+                thirdMatch = new Match
+                {
+                    TournamentId = tournamentId,
+                    Round = currentRound,
+                    HomeTeamId = loserId,
+                    AwayTeamId = loserId, // tam, se cap nhat khi ban ket kia xong
+                    Status = "Scheduled",
+                    IsThirdPlace = true
+                };
+                _context.Matches.Add(thirdMatch);
+            }
+            else
+            {
+                // Da co 1 doi thua -> dien doi thua thu 2 (neu chua co, dang bi trung)
+                if (thirdMatch.HomeTeamId == thirdMatch.AwayTeamId)
+                {
+                    // Slot away dang trung home -> dat doi thua moi vao away (neu khac home)
+                    if (loserId != thirdMatch.HomeTeamId)
+                        thirdMatch.AwayTeamId = loserId;
+                }
+            }
+
+            await _context.SaveChangesAsync();
         }
 
         // Xac dinh doi thang 1 tran (theo ti so chinh, roi luan luu neu hoa)
