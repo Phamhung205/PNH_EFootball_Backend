@@ -53,6 +53,9 @@ namespace Appwebbongda.Controllers
                 round = m.Round,
                 homeId = m.HomeTeamId,
                 awayId = m.AwayTeamId,
+                // Them ten 'homeTeamId'/'awayTeamId' de khop voi frontend (KnockoutBracket, QualifiedTeams)
+                homeTeamId = m.HomeTeamId,
+                awayTeamId = m.AwayTeamId,
                 homeName = m.HomeTeam != null ? m.HomeTeam.Name : null,
                 homeLogo = m.HomeTeam != null ? m.HomeTeam.LogoUrl : null,
                 awayName = m.AwayTeam != null ? m.AwayTeam.Name : null,
