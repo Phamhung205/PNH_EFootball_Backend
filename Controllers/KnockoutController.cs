@@ -118,8 +118,12 @@ namespace Appwebbongda.Controllers
             }
             else
             {
-                // Tu dong: lay 2 doi dung dau moi bang
-                advancingTeamIds = await GetTopTeamsPerGroup(tournamentId, 2);
+                // Tu dong: lay so doi di tiep moi bang theo CAU HINH giai (TeamsAdvancingPerGroup).
+                // Neu giai khong cau hinh -> mac dinh 2 doi/bang.
+                int perGroup = (tournament.TeamsAdvancingPerGroup.HasValue && tournament.TeamsAdvancingPerGroup.Value > 0)
+                    ? tournament.TeamsAdvancingPerGroup.Value
+                    : 2;
+                advancingTeamIds = await GetTopTeamsPerGroup(tournamentId, perGroup);
             }
 
             if (advancingTeamIds.Count < 2)

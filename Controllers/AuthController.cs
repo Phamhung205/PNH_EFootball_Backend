@@ -183,7 +183,7 @@ namespace Appwebbongda.Controllers
             {
                 success = true,
                 message = "Dang nhap Google thanh cong.",
-                data = new { token, user = new { user.Id, user.FullName, user.Email, user.Role } }
+                data = new { token, user = new { user.Id, user.FullName, user.Email, user.Role, user.AvatarUrl } }
             });
         }
 
@@ -211,7 +211,7 @@ namespace Appwebbongda.Controllers
             return Ok(new
             {
                 success = true,
-                data = new { user.Id, user.Email, user.FullName, user.PhoneNumber, user.Role }
+                data = new { user.Id, user.Email, user.FullName, user.PhoneNumber, user.Role, user.AvatarUrl }
             });
         }
 
@@ -228,6 +228,8 @@ namespace Appwebbongda.Controllers
 
             if (!string.IsNullOrWhiteSpace(dto.FullName)) user.FullName = dto.FullName.Trim();
             if (dto.PhoneNumber != null) user.PhoneNumber = dto.PhoneNumber;
+            // Luu anh dai dien (cho phep chuoi rong = xoa anh)
+            if (dto.AvatarUrl != null) user.AvatarUrl = dto.AvatarUrl;
 
             await _context.SaveChangesAsync();
 
@@ -235,7 +237,7 @@ namespace Appwebbongda.Controllers
             {
                 success = true,
                 message = "Cap nhat ho so thanh cong.",
-                data = new { user.Id, user.Email, user.FullName, user.PhoneNumber, user.Role }
+                data = new { user.Id, user.Email, user.FullName, user.PhoneNumber, user.Role, user.AvatarUrl }
             });
         }
 

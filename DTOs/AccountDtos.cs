@@ -12,6 +12,8 @@
     {
         public string? FullName { get; set; }
         public string? PhoneNumber { get; set; }
+        // Anh dai dien (base64 hoac URL)
+        public string? AvatarUrl { get; set; }
     }
 
     // DTO quen mat khau - buoc 1: gui OTP (LOI 4)

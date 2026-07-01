@@ -61,6 +61,8 @@ namespace Appwebbongda.Controllers
             public DateTime? StartDate { get; set; }
             // Cho phep dang ky tham du hay khong (admin bat/tat)
             public bool? AllowRegistration { get; set; }
+            // Logo giai dau
+            public string? LogoUrl { get; set; }
         }
 
         /// <summary>
@@ -114,7 +116,8 @@ namespace Appwebbongda.Controllers
                 // Luu nguoi tao giai (de BTC chi sua duoc giai cua minh)
                 CreatedByUserId = GetCurrentUserId(),
                 // Cho phep dang ky hay khong (mac dinh false neu khong gui)
-                AllowRegistration = dto.AllowRegistration ?? false
+                AllowRegistration = dto.AllowRegistration ?? false,
+                LogoUrl = dto.LogoUrl
             };
 
             _context.Tournaments.Add(tournament);
@@ -145,6 +148,7 @@ namespace Appwebbongda.Controllers
             if (dto.MaxTeams.HasValue) tournament.MaxTeams = dto.MaxTeams.Value;
             if (dto.StartDate.HasValue) tournament.StartDate = dto.StartDate.Value;
             if (dto.AllowRegistration.HasValue) tournament.AllowRegistration = dto.AllowRegistration.Value;
+            if (dto.LogoUrl != null) tournament.LogoUrl = dto.LogoUrl;
 
             await _context.SaveChangesAsync();
             return Ok(new { success = true, message = "Cập nhật giải đấu thành công!", data = tournament });

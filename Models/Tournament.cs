@@ -33,6 +33,9 @@ namespace Appwebbongda.Models
         // true = mo dang ky, false = dong. Mac dinh false.
         public bool AllowRegistration { get; set; } = false;
 
+        // LOGO giai dau (URL hoac base64). DB da co san cot nay.
+        public string? LogoUrl { get; set; }
+
         // Khởi tạo List rỗng để fix cảnh báo Null cho ICollection
         public ICollection<Group> Groups { get; set; } = new List<Group>();
         public ICollection<Team> Teams { get; set; } = new List<Team>();
