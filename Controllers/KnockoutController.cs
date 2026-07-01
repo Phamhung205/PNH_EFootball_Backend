@@ -158,7 +158,10 @@ namespace Appwebbongda.Controllers
         }
 
         // ===================================================================
-        // Ham phu: lay topN doi dung dau moi bang (theo diem)
+        // Ham phu: lay doi vao knockout theo THE THUC WC.
+        // - Lay top 2 moi bang (nhat + nhi)
+        // - Neu can du so doi la luy thua 2 (vd 32), lay them cac doi HANG 3 tot nhat.
+        // topN = so doi lay moi bang cho vi tri chinh (thuong 2).
         // ===================================================================
         private async Task<List<int>> GetTopTeamsPerGroup(int tournamentId, int topN)
         {
@@ -178,9 +181,14 @@ namespace Appwebbongda.Controllers
             var byGroup = teams
                 .Where(t => !string.IsNullOrEmpty(t.GroupName))
                 .GroupBy(t => t.GroupName)
-                .OrderBy(g => g.Key);
+                .OrderBy(g => g.Key)
+                .ToList();
+
+            int numGroups = byGroup.Count;
 
             var result = new List<int>();
+            // Danh sach cac doi xep thu (topN+1) moi bang (vd hang 3) de xet "tot nhat"
+            var rankNextTeams = new List<(int teamId, int points, int gd, int gf)>();
 
             foreach (var group in byGroup)
             {
@@ -211,7 +219,98 @@ namespace Appwebbongda.Controllers
                     standings.Add((team.TeamId, points, gf - ga, gf));
                 }
 
-                // Sap xep: diem -> hieu so -> ban thang. Lay topN
+                // Sap xep bang: diem -> hieu so -> ban thang
+                var ordered = standings
+                    .OrderByDescending(s => s.points)
+                    .ThenByDescending(s => s.gd)
+                    .ThenByDescending(s => s.gf)
+                    .ToList();
+
+                // Lay topN doi dau bang (nhat, nhi...)
+                result.AddRange(ordered.Take(topN).Select(s => s.teamId));
+
+                // Doi xep thu (topN+1) - vd hang 3 - de xet lay them sau
+                if (ordered.Count > topN)
+                    rankNextTeams.Add(ordered[topN]);
+            }
+
+            // Tinh so doi can co de so do knockout la luy thua 2 (2,4,8,16,32,64...)
+            int baseCount = result.Count;                 // vd 12 bang x 2 = 24
+            int target = LargestPowerOfTwoLE(baseCount + rankNextTeams.Count);
+            // target = luy thua 2 lon nhat <= (24 + 12) = 32
+
+            int extraNeeded = target - baseCount;         // vd 32 - 24 = 8 doi hang 3
+            if (extraNeeded > 0 && rankNextTeams.Count > 0)
+            {
+                // Lay 'extraNeeded' doi hang 3 TOT NHAT (theo diem -> hieu so -> ban thang)
+                var bestThirds = rankNextTeams
+                    .OrderByDescending(s => s.points)
+                    .ThenByDescending(s => s.gd)
+                    .ThenByDescending(s => s.gf)
+                    .Take(extraNeeded)
+                    .Select(s => s.teamId);
+                result.AddRange(bestThirds);
+            }
+
+            return result;
+        }
+
+        // Tim luy thua 2 lon nhat <= n (vd 24 -> 16, 32 -> 32, 36 -> 32)
+        private int LargestPowerOfTwoLE(int n)
+        {
+            int p = 1;
+            while (p * 2 <= n) p *= 2;
+            return p;
+        }
+
+        // (giu ham cu de tuong thich, khong dung nua)
+        private async Task<List<int>> GetTopTeamsPerGroupOld(int tournamentId, int topN)
+        {
+            var teams = await _context.Teams
+                .Where(t => t.TournamentId == tournamentId)
+                .ToListAsync();
+
+            var matches = await _context.Matches
+                .Where(m => m.TournamentId == tournamentId
+                            && m.Round < KNOCKOUT_BASE
+                            && m.HomeScore != null && m.AwayScore != null)
+                .ToListAsync();
+
+            var byGroup = teams
+                .Where(t => !string.IsNullOrEmpty(t.GroupName))
+                .GroupBy(t => t.GroupName)
+                .OrderBy(g => g.Key);
+
+            var result = new List<int>();
+
+            foreach (var group in byGroup)
+            {
+                var standings = new List<(int teamId, int points, int gd, int gf)>();
+
+                foreach (var team in group)
+                {
+                    int won = 0, drawn = 0, gf = 0, ga = 0;
+
+                    var homeGames = matches.Where(m => m.HomeTeamId == team.TeamId);
+                    foreach (var m in homeGames)
+                    {
+                        gf += m.HomeScore!.Value; ga += m.AwayScore!.Value;
+                        if (m.HomeScore > m.AwayScore) won++;
+                        else if (m.HomeScore == m.AwayScore) drawn++;
+                    }
+
+                    var awayGames = matches.Where(m => m.AwayTeamId == team.TeamId);
+                    foreach (var m in awayGames)
+                    {
+                        gf += m.AwayScore!.Value; ga += m.HomeScore!.Value;
+                        if (m.AwayScore > m.HomeScore) won++;
+                        else if (m.AwayScore == m.HomeScore) drawn++;
+                    }
+
+                    int points = won * 3 + drawn;
+                    standings.Add((team.TeamId, points, gf - ga, gf));
+                }
+
                 var topTeams = standings
                     .OrderByDescending(s => s.points)
                     .ThenByDescending(s => s.gd)
