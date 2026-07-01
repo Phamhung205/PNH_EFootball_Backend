@@ -66,24 +66,37 @@ builder.Services.AddCors(options =>
 
 var app = builder.Build();
 
-// 6. Migrate + Seed admin
+// 6. Seed admin (KHONG dung Migrate() de tranh crash PendingModelChangesWarning).
+// Database da duoc cap nhat cot bang SQL truc tiep nen KHONG can EF tu migrate.
+// Boc try-catch de neu DB tam thoi ngu/loi thi app VAN KHOI DONG (khong crash).
 using (var scope = app.Services.CreateScope())
 {
-    var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-    db.Database.Migrate();
-
-    const string adminEmail = "aadmin588@gmail.com";
-    if (!db.Users.Any(u => u.Email == adminEmail))
+    try
     {
-        db.Users.Add(new User
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+        // Chi dam bao ket noi duoc DB (khong goi Migrate de tranh warning lam crash)
+        db.Database.CanConnect();
+
+        const string adminEmail = "aadmin588@gmail.com";
+        if (!db.Users.Any(u => u.Email == adminEmail))
         {
-            FullName = "Administrator",
-            Email = adminEmail,
-            PasswordHash = BCrypt.Net.BCrypt.HashPassword("Admin@12345"),
-            Role = "Admin",
-            CreatedAt = DateTime.UtcNow
-        });
-        db.SaveChanges();
+            db.Users.Add(new User
+            {
+                FullName = "Administrator",
+                Email = adminEmail,
+                PasswordHash = BCrypt.Net.BCrypt.HashPassword("Admin@12345"),
+                Role = "Admin",
+                CreatedAt = DateTime.UtcNow
+            });
+            db.SaveChanges();
+        }
+    }
+    catch (Exception ex)
+    {
+        // Neu DB loi luc khoi dong -> chi ghi log, KHONG lam sap app.
+        // App van chay, cac request sau se thu ket noi lai.
+        Console.WriteLine($"[Startup Warning] Khong the seed admin luc khoi dong: {ex.Message}");
     }
 }
 
