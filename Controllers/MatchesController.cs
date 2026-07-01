@@ -46,7 +46,31 @@ namespace Appwebbongda.Controllers
                 .OrderBy(m => m.Round)
                 .ToListAsync();
 
-            return Ok(new { success = true, data = matches });
+            // Lay ban do TeamId -> GroupName de gan bang cho tung tran
+            var teamGroups = await _context.Teams
+                .Where(t => t.TournamentId == tournamentId)
+                .ToDictionaryAsync(t => t.TeamId, t => t.GroupName);
+
+            // Tra ve kem groupName (suy tu doi nha) de frontend chia lich theo bang
+            var data = matches.Select(m => new
+            {
+                m.MatchId,
+                m.TournamentId,
+                m.HomeTeamId,
+                m.AwayTeamId,
+                m.Round,
+                m.MatchDate,
+                m.HomeScore,
+                m.AwayScore,
+                m.HomePenalty,
+                m.AwayPenalty,
+                m.IsThirdPlace,
+                m.Status,
+                // Ten bang cua tran (lay theo doi nha). Null neu doi khong thuoc bang nao.
+                groupName = teamGroups.TryGetValue(m.HomeTeamId, out var g) ? g : null
+            }).ToList();
+
+            return Ok(new { success = true, data });
         }
 
         /// <summary>
@@ -75,14 +99,63 @@ namespace Appwebbongda.Controllers
             _context.Matches.RemoveRange(oldMatches);
             await _context.SaveChangesAsync();
 
-            // Thuật toán vòng tròn (Circle method)
-            var list = teams.Select(t => (int?)t.TeamId).ToList();
-            if (list.Count % 2 != 0) list.Add(null); // thêm "bye" nếu lẻ
+            string type = dto?.Type ?? "single";
+            var newMatches = new List<Match>();
+
+            // Kiem tra giai co CHIA BANG khong (co it nhat 1 doi co GroupName)
+            bool hasGroups = teams.Any(t => !string.IsNullOrEmpty(t.GroupName));
+
+            if (hasGroups)
+            {
+                // ===== GIAI CHIA BANG: moi bang da vong tron RIENG =====
+                // Nhom doi theo bang
+                var groups = teams
+                    .Where(t => !string.IsNullOrEmpty(t.GroupName))
+                    .GroupBy(t => t.GroupName)
+                    .OrderBy(g => g.Key);
+
+                foreach (var group in groups)
+                {
+                    var groupTeams = group.Select(t => t.TeamId).ToList();
+                    // Tao lich vong tron cho RIENG bang nay
+                    var groupMatches = GenerateRoundRobin(tournamentId, groupTeams, type);
+                    newMatches.AddRange(groupMatches);
+                }
+            }
+            else
+            {
+                // ===== GIAI KHONG CHIA BANG (League): tat ca da vong tron =====
+                var allTeamIds = teams.Select(t => t.TeamId).ToList();
+                newMatches = GenerateRoundRobin(tournamentId, allTeamIds, type);
+            }
+
+            _context.Matches.AddRange(newMatches);
+            await _context.SaveChangesAsync();
+
+            return Ok(new
+            {
+                success = true,
+                message = $"Đã tạo {newMatches.Count} trận đấu thành công!",
+                data = newMatches
+            });
+        }
+
+        // ===================================================================
+        // Ham phu: tao lich vong tron (round-robin) cho 1 danh sach doi.
+        // Moi doi gap tat ca doi khac 1 lan (single) hoac 2 lan (double).
+        // ===================================================================
+        private List<Match> GenerateRoundRobin(int tournamentId, List<int> teamIds, string type)
+        {
+            var result = new List<Match>();
+            if (teamIds.Count < 2) return result;
+
+            // Thuat toan vong tron (Circle method)
+            var list = teamIds.Select(t => (int?)t).ToList();
+            if (list.Count % 2 != 0) list.Add(null); // them "bye" neu le
 
             int n = list.Count;
             int rounds = n - 1;
             int half = n / 2;
-            var newMatches = new List<Match>();
 
             for (int r = 0; r < rounds; r++)
             {
@@ -93,7 +166,7 @@ namespace Appwebbongda.Controllers
 
                     if (home != null && away != null)
                     {
-                        newMatches.Add(new Match
+                        result.Add(new Match
                         {
                             TournamentId = tournamentId,
                             HomeTeamId = home.Value,
@@ -106,19 +179,18 @@ namespace Appwebbongda.Controllers
                     }
                 }
 
-                // Xoay vòng (giữ phần tử đầu cố định)
+                // Xoay vong (giu phan tu dau co dinh)
                 var last = list[n - 1];
                 for (int i = n - 1; i > 1; i--)
                     list[i] = list[i - 1];
                 list[1] = last;
             }
 
-            // Nếu type = double thì tạo thêm lượt về
-            string type = dto?.Type ?? "single";
+            // Neu double thi tao them luot ve
             if (type == "double")
             {
                 int baseRounds = rounds;
-                var secondLeg = newMatches.Select(m => new Match
+                var secondLeg = result.Select(m => new Match
                 {
                     TournamentId = m.TournamentId,
                     HomeTeamId = m.AwayTeamId,
@@ -126,18 +198,10 @@ namespace Appwebbongda.Controllers
                     Round = m.Round + baseRounds,
                     Status = "Scheduled"
                 }).ToList();
-                newMatches.AddRange(secondLeg);
+                result.AddRange(secondLeg);
             }
 
-            _context.Matches.AddRange(newMatches);
-            await _context.SaveChangesAsync();
-
-            return Ok(new
-            {
-                success = true,
-                message = $"Đã tạo {newMatches.Count} trận đấu thành công!",
-                data = newMatches
-            });
+            return result;
         }
 
         /// <summary>
