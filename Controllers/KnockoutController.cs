@@ -402,37 +402,38 @@ namespace Appwebbongda.Controllers
             // Doi thua tran nay = doi con lai (khong phai winnerId)
             int loserId = (semiMatch.HomeTeamId == winnerId) ? semiMatch.AwayTeamId : semiMatch.HomeTeamId;
 
-            // Trandh hang 3 dat cung Round voi ban ket, danh dau IsThirdPlace = true
+            // Tim tran ban ket "anh em" (tran con lai cung vong)
+            var otherSemi = roundMatches.FirstOrDefault(m => m.MatchId != semiMatch.MatchId);
+            int? otherLoser = null;
+            if (otherSemi != null)
+            {
+                int? otherWinner = GetWinner(otherSemi);
+                if (otherWinner != null)
+                    otherLoser = (otherSemi.HomeTeamId == otherWinner.Value) ? otherSemi.AwayTeamId : otherSemi.HomeTeamId;
+            }
+
+            // Tim tran tranh hang 3 da co
             var thirdMatch = await _context.Matches
                 .FirstOrDefaultAsync(m => m.TournamentId == tournamentId
                                           && m.Round == currentRound && m.IsThirdPlace);
 
             if (thirdMatch == null)
             {
-                // Chua co -> tao moi voi 1 doi thua (doi con lai them sau khi ban ket kia xong)
+                // CHI tao khi CA 2 ban ket da xong (du 2 doi thua), tranh tao "X vs X"
+                if (otherLoser == null) return;
+
                 thirdMatch = new Match
                 {
                     TournamentId = tournamentId,
                     Round = currentRound,
                     HomeTeamId = loserId,
-                    AwayTeamId = loserId, // tam, se cap nhat khi ban ket kia xong
+                    AwayTeamId = otherLoser.Value,
                     Status = "Scheduled",
                     IsThirdPlace = true
                 };
                 _context.Matches.Add(thirdMatch);
+                await _context.SaveChangesAsync();
             }
-            else
-            {
-                // Da co 1 doi thua -> dien doi thua thu 2 (neu chua co, dang bi trung)
-                if (thirdMatch.HomeTeamId == thirdMatch.AwayTeamId)
-                {
-                    // Slot away dang trung home -> dat doi thua moi vao away (neu khac home)
-                    if (loserId != thirdMatch.HomeTeamId)
-                        thirdMatch.AwayTeamId = loserId;
-                }
-            }
-
-            await _context.SaveChangesAsync();
         }
 
         // Xac dinh doi thang 1 tran (theo ti so chinh, roi luan luu neu hoa)
@@ -481,24 +482,38 @@ namespace Appwebbongda.Controllers
 
             Match? nextMatch = nextIndex < nextRoundMatches.Count ? nextRoundMatches[nextIndex] : null;
 
+            // 2 tran vong hien tai gop lai thanh 1 tran vong sau (idx chan + idx le)
+            // Vi tri cua tran "anh em" (cung cap voi tran hien tai)
+            int siblingIdx = isHomeSlot ? idx + 1 : idx - 1;
+            Match? sibling = (siblingIdx >= 0 && siblingIdx < currentRoundMatches.Count)
+                ? currentRoundMatches[siblingIdx] : null;
+
+            // Lay doi thang cua tran anh em (neu tran do da xong)
+            int? siblingWinner = (sibling != null) ? GetWinner(sibling) : null;
+
             if (nextMatch == null)
             {
-                // Chua co tran vong sau -> tao moi
-                // De tranh loi khoa ngoai, tam dat doi con lai = winnerId (se cap nhat khi tran kia xong)
+                // Chua co tran vong sau.
+                // CHI tao khi da biet CA 2 doi (winner + siblingWinner), tranh tao "X vs X".
+                if (siblingWinner == null)
+                {
+                    // Chua du 2 doi -> KHONG tao voi, cho tran anh em xong da.
+                    return;
+                }
+
+                // Da du 2 doi -> tao tran vong sau dung thu tu home/away
+                int homeId = isHomeSlot ? winnerId : siblingWinner.Value;
+                int awayId = isHomeSlot ? siblingWinner.Value : winnerId;
+
                 nextMatch = new Match
                 {
                     TournamentId = tournamentId,
                     Round = nextRound,
-                    HomeTeamId = isHomeSlot ? winnerId : 0,
-                    AwayTeamId = isHomeSlot ? 0 : winnerId,
+                    HomeTeamId = homeId,
+                    AwayTeamId = awayId,
                     Status = "Scheduled",
                     IsThirdPlace = false
                 };
-
-                // Neu 1 trong 2 slot con = 0 (chua co doi) -> tam dat = winnerId de thoa man [Required]
-                if (nextMatch.HomeTeamId == 0) nextMatch.HomeTeamId = winnerId;
-                if (nextMatch.AwayTeamId == 0) nextMatch.AwayTeamId = winnerId;
-
                 _context.Matches.Add(nextMatch);
             }
             else
