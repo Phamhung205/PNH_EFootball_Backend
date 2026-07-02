@@ -36,6 +36,11 @@ namespace Appwebbongda.Models
         // LOGO giai dau (URL hoac base64). DB da co san cot nay.
         public string? LogoUrl { get; set; }
 
+        // #72: Danh gia sao - tong diem sao + so luot danh gia
+        // Diem trung binh = RatingSum / RatingCount
+        public int RatingSum { get; set; } = 0;
+        public int RatingCount { get; set; } = 0;
+
         // Khởi tạo List rỗng để fix cảnh báo Null cho ICollection
         public ICollection<Group> Groups { get; set; } = new List<Group>();
         public ICollection<Team> Teams { get; set; } = new List<Team>();

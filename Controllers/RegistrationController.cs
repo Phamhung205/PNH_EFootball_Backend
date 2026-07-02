@@ -70,6 +70,15 @@ namespace Appwebbongda.Controllers
             if (existed)
                 return Conflict(new { success = false, message = "Ban da dang ky giai nay roi." });
 
+            // #7: Kiem tra GIOI HAN so doi dang ky (neu giai co dat MaxTeams > 0)
+            if (tournament.MaxTeams > 0)
+            {
+                int currentCount = await _context.Registrations
+                    .CountAsync(r => r.TournamentId == tournamentId);
+                if (currentCount >= tournament.MaxTeams)
+                    return BadRequest(new { success = false, message = $"Giai da du {tournament.MaxTeams} nguoi dang ky, khong the dang ky them." });
+            }
+
             var reg = new Registration
             {
                 TournamentId = tournamentId,

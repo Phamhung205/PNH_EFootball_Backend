@@ -204,5 +204,38 @@ namespace Appwebbongda.Controllers
                 return StatusCode(500, new { success = false, message = "Lỗi hệ thống.", error = ex.Message });
             }
         }
+
+        // ===================================================================
+        // #72: DANH GIA SAO cho giai dau (ai cung danh gia duoc, khong can dang nhap)
+        // POST /api/Tournaments/{id}/rate   body: { stars: 1-5 }
+        // ===================================================================
+        public class RateDto { public int Stars { get; set; } }
+
+        [HttpPost("{id}/rate")]
+        public async Task<IActionResult> Rate(int id, [FromBody] RateDto dto)
+        {
+            if (dto.Stars < 1 || dto.Stars > 5)
+                return BadRequest(new { success = false, message = "So sao phai tu 1 den 5." });
+
+            var t = await _context.Tournaments.FindAsync(id);
+            if (t == null) return NotFound(new { success = false, message = "Khong tim thay giai dau." });
+
+            t.RatingSum += dto.Stars;
+            t.RatingCount += 1;
+            await _context.SaveChangesAsync();
+
+            double avg = t.RatingCount > 0 ? (double)t.RatingSum / t.RatingCount : 0;
+            return Ok(new { success = true, message = "Cam on ban da danh gia!", average = Math.Round(avg, 1), count = t.RatingCount });
+        }
+
+        // GET /api/Tournaments/{id}/rating - lay diem trung binh + so luot
+        [HttpGet("{id}/rating")]
+        public async Task<IActionResult> GetRating(int id)
+        {
+            var t = await _context.Tournaments.FindAsync(id);
+            if (t == null) return NotFound(new { success = false, message = "Khong tim thay." });
+            double avg = t.RatingCount > 0 ? (double)t.RatingSum / t.RatingCount : 0;
+            return Ok(new { success = true, average = Math.Round(avg, 1), count = t.RatingCount });
+        }
     }
 }
