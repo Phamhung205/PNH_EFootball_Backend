@@ -146,12 +146,9 @@ namespace Appwebbongda.Controllers
         // LUU Y: chi tra ten tai khoan (FullName), KHONG tra Email de bao mat
         // ===================================================================
         [HttpGet("{tournamentId}/list")]
-        [Authorize]
+        [Authorize(Roles = "Admin,BTC")]
         public async Task<IActionResult> GetList(int tournamentId)
         {
-            if (!IsAdmin())
-                return StatusCode(403, new { success = false, message = "Chi admin moi xem duoc danh sach dang ky." });
-
             var list = await _context.Registrations
                 .Include(r => r.User)
                 .Include(r => r.Team)
@@ -265,29 +262,28 @@ namespace Appwebbongda.Controllers
             if (regs.Count == 0)
                 return BadRequest(new { success = false, message = "Khong co dang ky nao can chia doi." });
 
-            // Xao tron ngau nhien (random)
+            // Lay danh sach DOI CO SAN cua giai (khong tao doi moi)
+            var teams = await _context.Teams
+                .Where(t => t.TournamentId == tournamentId)
+                .ToListAsync();
+
+            if (teams.Count == 0)
+                return BadRequest(new { success = false, message = "Giai chua co doi nao. Hay tao doi truoc khi chia." });
+
+            // Xao tron ngau nhien ca nguoi va doi
             var rng = new Random();
-            var shuffled = regs.OrderBy(_ => rng.Next()).ToList();
+            var shuffledRegs = regs.OrderBy(_ => rng.Next()).ToList();
+            var shuffledTeams = teams.OrderBy(_ => rng.Next()).ToList();
 
-            int created = 0;
-            foreach (var reg in shuffled)
+            int assigned = 0;
+            // Gan lan luot moi nguoi vao 1 doi (chia vong tron neu nguoi nhieu hon doi)
+            for (int i = 0; i < shuffledRegs.Count; i++)
             {
-                // Tao 1 doi moi mang ten nguoi choi (dung FullName, KHONG dung email)
-                string playerName = reg.User?.FullName ?? $"Player {reg.UserId}";
-
-                var team = new Team
-                {
-                    Name = playerName,
-                    TournamentId = tournamentId,
-                    Status = "Da duyet"
-                };
-                _context.Teams.Add(team);
-                await _context.SaveChangesAsync(); // luu de co TeamId
-
-                // Gan doi vua tao cho ban ghi dang ky
+                var reg = shuffledRegs[i];
+                var team = shuffledTeams[i % shuffledTeams.Count]; // vong tron neu het doi
                 reg.TeamId = team.TeamId;
                 reg.Status = "Assigned";
-                created++;
+                assigned++;
             }
 
             await _context.SaveChangesAsync();
@@ -295,9 +291,55 @@ namespace Appwebbongda.Controllers
             return Ok(new
             {
                 success = true,
-                message = $"Da chia {created} doi tu danh sach dang ky!",
-                total = created
+                message = $"Da gan {assigned} nguoi vao {shuffledTeams.Count} doi!",
+                total = assigned
             });
+        }
+        // ===================================================================
+        // 9. ADMIN/BTC: Sua ten nguoi dang ky (sua FullName cua user)
+        // PUT /api/Registration/{registrationId}/edit-name
+        // ===================================================================
+        public class EditNameDto { public string? FullName { get; set; } }
+
+        [HttpPut("{registrationId}/edit-name")]
+        [Authorize(Roles = "Admin,BTC")]
+        public async Task<IActionResult> EditName(int registrationId, [FromBody] EditNameDto dto)
+        {
+            var reg = await _context.Registrations
+                .Include(r => r.User)
+                .FirstOrDefaultAsync(r => r.Id == registrationId);
+            if (reg == null) return NotFound(new { success = false, message = "Khong tim thay dang ky." });
+            if (reg.User == null) return NotFound(new { success = false, message = "Khong tim thay nguoi dung." });
+
+            if (!string.IsNullOrWhiteSpace(dto.FullName))
+            {
+                reg.User.FullName = dto.FullName.Trim();
+                await _context.SaveChangesAsync();
+            }
+            return Ok(new { success = true, message = "Da sua ten." });
+        }
+        // ===================================================================
+        // 10. Lay danh sach DOI kem TEN NGUOI duoc gan (cho phan chia bang)
+        // GET /api/Registration/{tournamentId}/team-assignments
+        // Tra: [{ teamId, teamName, playerName }]
+        // ===================================================================
+        [HttpGet("{tournamentId}/team-assignments")]
+        public async Task<IActionResult> TeamAssignments(int tournamentId)
+        {
+            // Lay cac dang ky da duoc gan doi (co TeamId)
+            var assignments = await _context.Registrations
+                .Include(r => r.User)
+                .Include(r => r.Team)
+                .Where(r => r.TournamentId == tournamentId && r.TeamId != null)
+                .Select(r => new
+                {
+                    teamId = r.TeamId,
+                    teamName = r.Team != null ? r.Team.Name : null,
+                    playerName = r.User != null ? r.User.FullName : null
+                })
+                .ToListAsync();
+
+            return Ok(new { success = true, data = assignments });
         }
     }
 }
