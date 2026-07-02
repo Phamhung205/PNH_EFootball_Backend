@@ -63,6 +63,7 @@ namespace Appwebbongda.Controllers
             public bool? AllowRegistration { get; set; }
             // Logo giai dau
             public string? LogoUrl { get; set; }
+            public string? Season { get; set; }
         }
 
         /// <summary>
@@ -117,7 +118,8 @@ namespace Appwebbongda.Controllers
                 CreatedByUserId = GetCurrentUserId(),
                 // Cho phep dang ky hay khong (mac dinh false neu khong gui)
                 AllowRegistration = dto.AllowRegistration ?? false,
-                LogoUrl = dto.LogoUrl
+                LogoUrl = dto.LogoUrl,
+                Season = dto.Season
             };
 
             _context.Tournaments.Add(tournament);
@@ -149,6 +151,7 @@ namespace Appwebbongda.Controllers
             if (dto.StartDate.HasValue) tournament.StartDate = dto.StartDate.Value;
             if (dto.AllowRegistration.HasValue) tournament.AllowRegistration = dto.AllowRegistration.Value;
             if (dto.LogoUrl != null) tournament.LogoUrl = dto.LogoUrl;
+            if (dto.Season != null) tournament.Season = dto.Season;
 
             await _context.SaveChangesAsync();
             return Ok(new { success = true, message = "Cập nhật giải đấu thành công!", data = tournament });
