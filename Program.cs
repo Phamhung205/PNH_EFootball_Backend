@@ -12,7 +12,17 @@ var builder = WebApplication.CreateBuilder(args);
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
     ?? throw new InvalidOperationException("Thiếu ConnectionStrings__DefaultConnection.");
 builder.Services.AddDbContext<AppDbContext>(options =>
-    options.UseSqlServer(connectionString, sql => sql.EnableRetryOnFailure()));
+    options.UseSqlServer(connectionString, sql =>
+    {
+        // DB MonsterASP (goi mien phi) hay ngu/cham -> tang thoi gian cho + thu lai nhieu lan.
+        // Thu lai toi da 5 lan, moi lan cach nhau toi da 10 giay (danh thuc DB dang ngu).
+        sql.EnableRetryOnFailure(
+            maxRetryCount: 5,
+            maxRetryDelay: TimeSpan.FromSeconds(10),
+            errorNumbersToAdd: null);
+        // Cho moi cau lenh toi da 60 giay (thay vi 30s mac dinh) vi DB cham.
+        sql.CommandTimeout(60);
+    }));
 
 // 2. Services
 builder.Services.AddScoped<IJwtService, JwtService>();
