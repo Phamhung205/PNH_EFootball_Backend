@@ -78,14 +78,18 @@ using (var scope = app.Services.CreateScope())
         // Chi dam bao ket noi duoc DB (khong goi Migrate de tranh warning lam crash)
         db.Database.CanConnect();
 
-        const string adminEmail = "aadmin588@gmail.com";
+        // Doc thong tin admin tu BIEN MOI TRUONG (khong hard-code de tranh lo code).
+        // Neu chua cau hinh bien -> dung gia tri mac dinh (chi cho lan chay dau).
+        var adminEmail = builder.Configuration["Admin:Email"] ?? "aadmin588@gmail.com";
+        var adminPassword = builder.Configuration["Admin:Password"] ?? "Admin@12345";
+
         if (!db.Users.Any(u => u.Email == adminEmail))
         {
             db.Users.Add(new User
             {
                 FullName = "Administrator",
                 Email = adminEmail,
-                PasswordHash = BCrypt.Net.BCrypt.HashPassword("Admin@12345"),
+                PasswordHash = BCrypt.Net.BCrypt.HashPassword(adminPassword),
                 Role = "Admin",
                 CreatedAt = DateTime.UtcNow
             });
