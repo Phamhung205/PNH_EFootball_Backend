@@ -32,6 +32,10 @@ namespace Appwebbongda.Controllers
         private bool IsAdmin() =>
             string.Equals(User.FindFirstValue(ClaimTypes.Role), "Admin", StringComparison.OrdinalIgnoreCase);
 
+        // Lay role cua user hien tai (Admin/BTC/User)
+        private string GetCurrentRole() =>
+            User.FindFirstValue(ClaimTypes.Role) ?? "User";
+
         // ===================================================================
         // 1. USER: Dang ky tham du 1 giai
         // POST /api/Registration/{tournamentId}
@@ -42,6 +46,15 @@ namespace Appwebbongda.Controllers
         {
             var uid = GetCurrentUserId();
             if (uid == null) return Unauthorized(new { success = false, message = "Token khong hop le." });
+
+            // CHI USER (thanh vien) duoc dang ky. Admin/BTC khong dang ky truc tiep.
+            var role = GetCurrentRole();
+            if (string.Equals(role, "Admin", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(role, "BTC", StringComparison.OrdinalIgnoreCase))
+            {
+                var roleLabel = string.Equals(role, "Admin", StringComparison.OrdinalIgnoreCase) ? "Admin" : "Ban To Chuc";
+                return BadRequest(new { success = false, message = $"Ban la {roleLabel} nen khong the dang ky tham du." });
+            }
 
             var tournament = await _context.Tournaments.FindAsync(tournamentId);
             if (tournament == null)
@@ -194,6 +207,97 @@ namespace Appwebbongda.Controllers
                 .ToListAsync();
 
             return Ok(new { success = true, data = list });
+        }
+
+        // ===================================================================
+        // 6. ADMIN/BTC: Duyet 1 dang ky (chuyen sang trang thai da duyet)
+        // PUT /api/Registration/{registrationId}/approve
+        // Ghi chu: hien tai dang ky mac dinh "Registered". Duyet se danh dau "Approved".
+        // ===================================================================
+        [HttpPut("{registrationId}/approve")]
+        [Authorize(Roles = "Admin,BTC")]
+        public async Task<IActionResult> Approve(int registrationId)
+        {
+            var reg = await _context.Registrations.FindAsync(registrationId);
+            if (reg == null) return NotFound(new { success = false, message = "Khong tim thay dang ky." });
+
+            reg.Status = "Approved";
+            await _context.SaveChangesAsync();
+            return Ok(new { success = true, message = "Da duyet dang ky." });
+        }
+
+        // ===================================================================
+        // 7. ADMIN/BTC: Tu choi / xoa 1 dang ky
+        // DELETE /api/Registration/{registrationId}/reject
+        // ===================================================================
+        [HttpDelete("{registrationId}/reject")]
+        [Authorize(Roles = "Admin,BTC")]
+        public async Task<IActionResult> Reject(int registrationId)
+        {
+            var reg = await _context.Registrations.FindAsync(registrationId);
+            if (reg == null) return NotFound(new { success = false, message = "Khong tim thay dang ky." });
+
+            _context.Registrations.Remove(reg);
+            await _context.SaveChangesAsync();
+            return Ok(new { success = true, message = "Da tu choi/xoa dang ky." });
+        }
+
+        // ===================================================================
+        // 8. ADMIN/BTC: Chia doi TU DONG (random) tu danh sach nguoi da dang ky
+        // POST /api/Registration/{tournamentId}/auto-assign
+        // Moi nguoi dang ky se tao thanh 1 doi (ten = ten nguoi choi), hoac
+        // gan vao doi da co neu giai da tao san doi. O day: TAO doi moi theo ten nguoi.
+        // ===================================================================
+        [HttpPost("{tournamentId}/auto-assign")]
+        [Authorize(Roles = "Admin,BTC")]
+        public async Task<IActionResult> AutoAssign(int tournamentId)
+        {
+            var tournament = await _context.Tournaments.FindAsync(tournamentId);
+            if (tournament == null)
+                return NotFound(new { success = false, message = "Khong tim thay giai dau." });
+
+            // Lay danh sach dang ky chua duoc gan doi
+            var regs = await _context.Registrations
+                .Include(r => r.User)
+                .Where(r => r.TournamentId == tournamentId && r.TeamId == null)
+                .ToListAsync();
+
+            if (regs.Count == 0)
+                return BadRequest(new { success = false, message = "Khong co dang ky nao can chia doi." });
+
+            // Xao tron ngau nhien (random)
+            var rng = new Random();
+            var shuffled = regs.OrderBy(_ => rng.Next()).ToList();
+
+            int created = 0;
+            foreach (var reg in shuffled)
+            {
+                // Tao 1 doi moi mang ten nguoi choi (dung FullName, KHONG dung email)
+                string playerName = reg.User?.FullName ?? $"Player {reg.UserId}";
+
+                var team = new Team
+                {
+                    Name = playerName,
+                    TournamentId = tournamentId,
+                    Status = "Da duyet"
+                };
+                _context.Teams.Add(team);
+                await _context.SaveChangesAsync(); // luu de co TeamId
+
+                // Gan doi vua tao cho ban ghi dang ky
+                reg.TeamId = team.TeamId;
+                reg.Status = "Assigned";
+                created++;
+            }
+
+            await _context.SaveChangesAsync();
+
+            return Ok(new
+            {
+                success = true,
+                message = $"Da chia {created} doi tu danh sach dang ky!",
+                total = created
+            });
         }
     }
 }
