@@ -1,5 +1,6 @@
-using Microsoft.EntityFrameworkCore;
 using Appwebbongda.Models;
+using Microsoft.EntityFrameworkCore;
+using System.Text.RegularExpressions;
 
 namespace Appwebbongda.Data
 {
@@ -14,6 +15,7 @@ namespace Appwebbongda.Data
         public DbSet<Match> Matches { get; set; }
         public DbSet<User> Users { get; set; }
         public DbSet<Registration> Registrations { get; set; }
+        public DbSet<ChatMessage> ChatMessages { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
