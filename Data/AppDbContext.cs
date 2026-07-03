@@ -1,6 +1,9 @@
-using Appwebbongda.Models;
 using Microsoft.EntityFrameworkCore;
-using System.Text.RegularExpressions;
+using Appwebbongda.Models;
+// Alias ro rang de tranh loi CS0104 (Match/Group trung ten voi namespace khac
+// nhu System.Text.RegularExpressions.Match neu Visual Studio tu them using thua)
+using Match = Appwebbongda.Models.Match;
+using Group = Appwebbongda.Models.Group;
 
 namespace Appwebbongda.Data
 {
