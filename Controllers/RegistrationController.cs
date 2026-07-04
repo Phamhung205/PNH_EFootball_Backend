@@ -327,6 +327,30 @@ namespace Appwebbongda.Controllers
             }
             return Ok(new { success = true, message = "Da sua ten." });
         }
+
+        // ===================================================================
+        // Reset gan nguoi: dua tat ca dang ky ve CHUA GAN (TeamId = null)
+        // De admin gan lai tu dau
+        // POST /api/Registration/{tournamentId}/reset-assign
+        // ===================================================================
+        [HttpPost("{tournamentId}/reset-assign")]
+        [Authorize(Roles = "Admin,BTC")]
+        public async Task<IActionResult> ResetAssign(int tournamentId)
+        {
+            var regs = await _context.Registrations
+                .Where(r => r.TournamentId == tournamentId && r.TeamId != null)
+                .ToListAsync();
+
+            foreach (var r in regs)
+            {
+                r.TeamId = null;
+                r.Status = "Registered";
+            }
+            await _context.SaveChangesAsync();
+
+            return Ok(new { success = true, message = $"Da reset {regs.Count} nguoi ve chua gan.", count = regs.Count });
+        }
+
         // ===================================================================
         // 10. Lay danh sach DOI kem TEN NGUOI duoc gan (cho phan chia bang)
         // GET /api/Registration/{tournamentId}/team-assignments
