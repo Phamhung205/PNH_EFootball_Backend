@@ -47,6 +47,17 @@ namespace Appwebbongda.Models
         // Box chat: admin bat -> user da dang ky se thay box chat
         public bool ChatEnabled { get; set; } = false;
 
+        // ===== THU PHI GIAI DAU =====
+        public int EntryFee { get; set; } = 0;          // Phi 1 nguoi (VD 20000)
+        public int AdminFee { get; set; } = 0;          // Phi cat cho admin (VD 15000)
+        public string? BankName { get; set; }           // Ten ngan hang
+        public string? BankAccount { get; set; }        // So tai khoan
+        public string? BankHolder { get; set; }         // Ten chu tai khoan
+        public int Prize1 { get; set; } = 0;            // Thuong top 1 (admin nhap tay)
+        public int Prize2 { get; set; } = 0;            // Thuong top 2
+        public int Prize3 { get; set; } = 0;            // Thuong top 3
+
+
         // Khởi tạo List rỗng để fix cảnh báo Null cho ICollection
         public ICollection<Group> Groups { get; set; } = new List<Group>();
         public ICollection<Team> Teams { get; set; } = new List<Team>();

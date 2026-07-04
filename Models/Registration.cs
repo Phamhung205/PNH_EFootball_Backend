@@ -37,6 +37,10 @@ namespace Appwebbongda.Models
         [MaxLength(20)]
         public string Status { get; set; } = "Registered";
 
+        // Da dong phi chua (admin xac nhan)
+        public bool HasPaid { get; set; } = false;
+        public DateTime? PaidAt { get; set; }
+
         // Thoi diem dang ky
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     }
