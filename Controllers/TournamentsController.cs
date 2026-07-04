@@ -64,6 +64,7 @@ namespace Appwebbongda.Controllers
             // Logo giai dau
             public string? LogoUrl { get; set; }
             public string? Season { get; set; }
+            public bool? ChatEnabled { get; set; }
         }
 
         /// <summary>
@@ -119,7 +120,8 @@ namespace Appwebbongda.Controllers
                 // Cho phep dang ky hay khong (mac dinh false neu khong gui)
                 AllowRegistration = dto.AllowRegistration ?? false,
                 LogoUrl = dto.LogoUrl,
-                Season = dto.Season
+                Season = dto.Season,
+                ChatEnabled = dto.ChatEnabled ?? false
             };
 
             _context.Tournaments.Add(tournament);
@@ -152,6 +154,7 @@ namespace Appwebbongda.Controllers
             if (dto.AllowRegistration.HasValue) tournament.AllowRegistration = dto.AllowRegistration.Value;
             if (dto.LogoUrl != null) tournament.LogoUrl = dto.LogoUrl;
             if (dto.Season != null) tournament.Season = dto.Season;
+            if (dto.ChatEnabled.HasValue) tournament.ChatEnabled = dto.ChatEnabled.Value;
 
             await _context.SaveChangesAsync();
             return Ok(new { success = true, message = "Cập nhật giải đấu thành công!", data = tournament });

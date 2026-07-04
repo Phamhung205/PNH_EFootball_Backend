@@ -44,6 +44,9 @@ namespace Appwebbongda.Models
         // #9: Mua giai (VD "Mua 2024", "Mua 1"...). Cho phep null neu khong dung.
         public string? Season { get; set; }
 
+        // Box chat: admin bat -> user da dang ky se thay box chat
+        public bool ChatEnabled { get; set; } = false;
+
         // Khởi tạo List rỗng để fix cảnh báo Null cho ICollection
         public ICollection<Group> Groups { get; set; } = new List<Group>();
         public ICollection<Team> Teams { get; set; } = new List<Team>();
