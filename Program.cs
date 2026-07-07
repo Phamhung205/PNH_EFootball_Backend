@@ -103,12 +103,18 @@ using (var scope = app.Services.CreateScope())
         // Chi dam bao ket noi duoc DB (khong goi Migrate de tranh warning lam crash)
         db.Database.CanConnect();
 
-        // Doc thong tin admin tu BIEN MOI TRUONG (khong hard-code de tranh lo code).
-        // Neu chua cau hinh bien -> dung gia tri mac dinh (chi cho lan chay dau).
-        var adminEmail = builder.Configuration["Admin:Email"] ?? "aadmin588@gmail.com";
-        var adminPassword = builder.Configuration["Admin:Password"] ?? "Admin@12345";
+        // Doc thong tin admin tu BIEN MOI TRUONG (KHONG hard-code mat khau de tranh lo).
+        // BAO MAT: chi tao admin khi da cau hinh Admin:Password (bien moi truong Admin__Password).
+        // Neu chua cau hinh -> BO QUA seed (khong tao admin mat khau mac dinh de tranh lo hong).
+        var adminEmail = builder.Configuration["Admin:Email"];
+        var adminPassword = builder.Configuration["Admin:Password"];
 
-        if (!db.Users.Any(u => u.Email == adminEmail))
+        if (string.IsNullOrWhiteSpace(adminEmail) || string.IsNullOrWhiteSpace(adminPassword))
+        {
+            Console.WriteLine("[Startup] Chua cau hinh Admin:Email / Admin:Password -> BO QUA tao admin. " +
+                              "Hay dat bien moi truong Admin__Email va Admin__Password de tao tai khoan admin an toan.");
+        }
+        else if (!db.Users.Any(u => u.Email == adminEmail))
         {
             db.Users.Add(new User
             {
@@ -119,6 +125,7 @@ using (var scope = app.Services.CreateScope())
                 CreatedAt = DateTime.UtcNow
             });
             db.SaveChanges();
+            Console.WriteLine($"[Startup] Da tao tai khoan admin: {adminEmail}");
         }
     }
     catch (Exception ex)
@@ -130,8 +137,13 @@ using (var scope = app.Services.CreateScope())
 }
 
 // 7. Pipeline
-app.UseSwagger();
-app.UseSwaggerUI();
+// BAO MAT: chi bat Swagger khi chay Local (Development). Tren production tat di
+// de khong lo toan bo danh sach API cho nguoi ngoai.
+if (app.Environment.IsDevelopment())
+{
+    app.UseSwagger();
+    app.UseSwaggerUI();
+}
 app.UseCors(CorsPolicy);
 
 app.UseAuthentication(); // PHẢI trước UseAuthorization
