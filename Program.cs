@@ -1,4 +1,5 @@
 using System.Text;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
@@ -51,6 +52,20 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
         };
     });
 builder.Services.AddAuthorization();
+
+// 3b. Rate limiting (chan thu nhieu lan: login, OTP, quen mat khau...)
+// Chinh sach "auth": moi IP toi da 5 request / 1 phut cho cac endpoint dang nhap/OTP.
+// Neu vuot -> tra ve ma 429 (Too Many Requests).
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = 429;
+    options.AddFixedWindowLimiter("auth", opt =>
+    {
+        opt.PermitLimit = 5;
+        opt.Window = TimeSpan.FromMinutes(1);
+        opt.QueueLimit = 0;
+    });
+});
 
 // 4. Controllers + JSON
 builder.Services.AddControllers()
@@ -121,6 +136,8 @@ app.UseCors(CorsPolicy);
 
 app.UseAuthentication(); // PHẢI trước UseAuthorization
 app.UseAuthorization();
+
+app.UseRateLimiter(); // bat gioi han so lan thu (phai truoc MapControllers)
 
 app.MapControllers();
 app.MapGet("/", () => Results.Ok(new { status = "PNH Football API is running" }));

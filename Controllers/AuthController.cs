@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Appwebbongda.Data;
@@ -15,6 +16,7 @@ namespace Appwebbongda.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
+    [EnableRateLimiting("auth")] // gioi han 5 request/phut/IP cho tat ca endpoint dang nhap/OTP
     public class AuthController : ControllerBase
     {
         private readonly AppDbContext _context;

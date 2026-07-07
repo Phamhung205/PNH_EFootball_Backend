@@ -60,11 +60,15 @@ namespace Appwebbongda.Services
             var securityKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(key));
             var creds = new SigningCredentials(securityKey, SecurityAlgorithms.HmacSha256);
 
+            // So gio token con hieu luc: doc tu config Jwt:ExpireHours, mac dinh 24 gio (1 ngay).
+            // Token cang song ngan cang an toan: neu bi lo thi cung nhanh het han.
+            var expireHours = int.TryParse(_config["Jwt:ExpireHours"], out var h) && h > 0 ? h : 24;
+
             var token = new JwtSecurityToken(
                 issuer: issuer,
                 audience: audience,
                 claims: claims,
-                expires: DateTime.UtcNow.AddDays(7),
+                expires: DateTime.UtcNow.AddHours(expireHours),
                 signingCredentials: creds);
 
             return new JwtSecurityTokenHandler().WriteToken(token);
@@ -74,8 +78,19 @@ namespace Appwebbongda.Services
     // ========== OTP THAT (ngau nhien 6 so, luu tam, het han 5 phut) ==========
     public class OtpService : IOtpService
     {
-        private static readonly ConcurrentDictionary<string, (string Code, DateTime Expiry)> _store
-            = new ConcurrentDictionary<string, (string, DateTime)>();
+        // Luu ma OTP kem han dung va SO LAN THU (de chan do ma).
+        private class OtpEntry
+        {
+            public string Code { get; set; } = "";
+            public DateTime Expiry { get; set; }
+            public int Attempts { get; set; }
+        }
+
+        private static readonly ConcurrentDictionary<string, OtpEntry> _store
+            = new ConcurrentDictionary<string, OtpEntry>();
+
+        // So lan nhap sai toi da truoc khi ma bi huy (phai gui lai OTP moi)
+        private const int MaxAttempts = 5;
 
         public string GenerateOtp(string contactInfo)
         {
@@ -83,7 +98,12 @@ namespace Appwebbongda.Services
             var code = number.ToString("D6");
 
             var key = (contactInfo ?? "").Trim().ToLowerInvariant();
-            _store[key] = (code, DateTime.UtcNow.AddMinutes(5));
+            _store[key] = new OtpEntry
+            {
+                Code = code,
+                Expiry = DateTime.UtcNow.AddMinutes(5),
+                Attempts = 0
+            };
             return code;
         }
 
@@ -92,14 +112,23 @@ namespace Appwebbongda.Services
             var key = (contactInfo ?? "").Trim().ToLowerInvariant();
             if (!_store.TryGetValue(key, out var entry)) return false;
 
+            // Het han -> huy
             if (DateTime.UtcNow > entry.Expiry)
             {
                 _store.TryRemove(key, out _);
                 return false;
             }
 
+            // Dem so lan thu; sai qua MaxAttempts -> huy ma, buoc gui lai OTP moi
+            entry.Attempts++;
+            if (entry.Attempts > MaxAttempts)
+            {
+                _store.TryRemove(key, out _);
+                return false;
+            }
+
             var ok = entry.Code == (otpCode ?? "").Trim();
-            if (ok) _store.TryRemove(key, out _);
+            if (ok) _store.TryRemove(key, out _); // dung roi thi xoa luon
             return ok;
         }
     }
