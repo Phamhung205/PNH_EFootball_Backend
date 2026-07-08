@@ -1,4 +1,5 @@
 using System.Text;
+using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -137,6 +138,37 @@ using (var scope = app.Services.CreateScope())
 }
 
 // 7. Pipeline
+
+// 7a. Bat loi TOAN CUC: moi loi chua xu ly se bi bat o day, ghi log,
+// va tra ve JSON gon gang (KHONG lo stack trace ra ngoai o production).
+app.UseExceptionHandler(errApp =>
+{
+    errApp.Run(async context =>
+    {
+        var feature = context.Features.Get<IExceptionHandlerFeature>();
+        var ex = feature?.Error;
+
+        // Ghi log loi kem duong dan de tien tra sau nay
+        var logger = context.RequestServices
+            .GetRequiredService<ILoggerFactory>()
+            .CreateLogger("GlobalError");
+        logger.LogError(ex, "Loi chua xu ly tai {Path}", context.Request.Path);
+
+        var isDev = context.RequestServices
+            .GetRequiredService<IHostEnvironment>().IsDevelopment();
+
+        context.Response.StatusCode = 500;
+        context.Response.ContentType = "application/json";
+        await context.Response.WriteAsJsonAsync(new
+        {
+            success = false,
+            message = "Đã có lỗi xảy ra trên máy chủ. Vui lòng thử lại sau.",
+            // Chi lo chi tiet loi khi chay Local (Development), production thi an di
+            detail = isDev ? ex?.Message : null
+        });
+    });
+});
+
 // BAO MAT: chi bat Swagger khi chay Local (Development). Tren production tat di
 // de khong lo toan bo danh sach API cho nguoi ngoai.
 if (app.Environment.IsDevelopment())
@@ -153,5 +185,21 @@ app.UseRateLimiter(); // bat gioi han so lan thu (phai truoc MapControllers)
 
 app.MapControllers();
 app.MapGet("/", () => Results.Ok(new { status = "PNH Football API is running" }));
+
+// /health: chay "SELECT 1" de DANH THUC DB va giu DB + backend KHONG bi ngu.
+// QUAN TRONG: UptimeRobot phai ping vao /health (KHONG phai /) thi moi danh thuc DB,
+// vi endpoint / khong dung DB nen ping vao / chi giu backend, DB van ngu -> van cham.
+app.MapGet("/health", async (AppDbContext db) =>
+{
+    try
+    {
+        await db.Database.ExecuteSqlRawAsync("SELECT 1");
+        return Results.Ok(new { status = "healthy", db = "awake" });
+    }
+    catch (Exception ex)
+    {
+        return Results.Ok(new { status = "degraded", db = "sleeping", note = ex.Message });
+    }
+});
 
 app.Run();
