@@ -33,6 +33,9 @@ builder.Services.AddScoped<IOtpService, OtpService>();
 builder.Services.AddScoped<IEmailSender, EmailSender>();
 builder.Services.AddScoped<ISmsSender, SmsSender>();
 
+// HttpClient de goi API AI (Groq) tu AssistantController
+builder.Services.AddHttpClient();
+
 // 3. JWT Authentication
 var jwtKey = builder.Configuration["Jwt:Key"]
     ?? throw new InvalidOperationException("Thiếu Jwt__Key.");
@@ -64,6 +67,13 @@ builder.Services.AddRateLimiter(options =>
     options.AddFixedWindowLimiter("auth", opt =>
     {
         opt.PermitLimit = 5;
+        opt.Window = TimeSpan.FromMinutes(1);
+        opt.QueueLimit = 0;
+    });
+    // Chinh sach "chat": moi IP toi da 20 tin nhan/phut (tranh xai chua het quota AI free)
+    options.AddFixedWindowLimiter("chat", opt =>
+    {
+        opt.PermitLimit = 20;
         opt.Window = TimeSpan.FromMinutes(1);
         opt.QueueLimit = 0;
     });
