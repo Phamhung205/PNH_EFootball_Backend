@@ -38,6 +38,14 @@ namespace Appwebbongda.Models
         // ANH DAI DIEN (URL hoac base64). Null neu chua co.
         public string? AvatarUrl { get; set; }
 
+        // ===== GOI DANG KY =====
+        // Goi hien tai: "free" | "pro" | "ultra". Mac dinh free.
+        [MaxLength(20)]
+        public string Plan { get; set; } = "free";
+
+        // Ngay het han goi (UTC). Null = khong co goi tra phi (goi free vinh vien).
+        public DateTime? PlanExpiry { get; set; }
+
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     }
 }

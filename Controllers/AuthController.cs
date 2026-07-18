@@ -25,6 +25,7 @@ namespace Appwebbongda.Controllers
         private readonly IEmailSender _emailSender;
         private readonly ISmsSender _smsSender;
         private readonly IConfiguration _config;
+        private readonly ISubscriptionService _subscription;
 
         private const string AdminEmail = "aadmin588@gmail.com";
 
@@ -34,7 +35,8 @@ namespace Appwebbongda.Controllers
             IOtpService otpService,
             IEmailSender emailSender,
             ISmsSender smsSender,
-            IConfiguration config)
+            IConfiguration config,
+            ISubscriptionService subscription)
         {
             _context = context;
             _jwtService = jwtService;
@@ -42,6 +44,7 @@ namespace Appwebbongda.Controllers
             _emailSender = emailSender;
             _smsSender = smsSender;
             _config = config;
+            _subscription = subscription;
         }
 
         private static string HashPassword(string password) =>
@@ -66,11 +69,24 @@ namespace Appwebbongda.Controllers
                 if (user == null || !VerifyPassword(request.Password, user.PasswordHash))
                     return Unauthorized(new { message = "Email hoac mat khau khong chinh xac!" });
 
+                // Kiem tra goi het han TRUOC khi cap token -> token luon mang dung Role
+                if (_subscription.ApplyExpiryIfNeeded(user))
+                    await _context.SaveChangesAsync();
+
                 var jwtToken = _jwtService.GenerateToken(user);
                 return Ok(new
                 {
                     token = jwtToken,
-                    user = new { user.Id, user.Email, user.FullName, user.Role }
+                    user = new
+                    {
+                        user.Id,
+                        user.Email,
+                        user.FullName,
+                        user.Role,
+                        user.Plan,
+                        user.PlanExpiry,
+                        daysRemaining = _subscription.GetDaysRemaining(user)
+                    }
                 });
             }
             catch (Exception ex)
@@ -180,12 +196,16 @@ namespace Appwebbongda.Controllers
                 await _context.SaveChangesAsync();
             }
 
+            // Kiem tra goi het han truoc khi cap token
+            if (_subscription.ApplyExpiryIfNeeded(user))
+                await _context.SaveChangesAsync();
+
             var token = _jwtService.GenerateToken(user);
             return Ok(new
             {
                 success = true,
                 message = "Dang nhap Google thanh cong.",
-                data = new { token, user = new { user.Id, user.FullName, user.Email, user.Role, user.AvatarUrl } }
+                data = new { token, user = new { user.Id, user.FullName, user.Email, user.Role, user.AvatarUrl, user.Plan, user.PlanExpiry } }
             });
         }
 
@@ -210,10 +230,25 @@ namespace Appwebbongda.Controllers
             var user = await _context.Users.FindAsync(uid.Value);
             if (user == null) return NotFound(new { success = false, message = "Khong tim thay nguoi dung." });
 
+            // Kiem tra het han moi lan lay thong tin ca nhan
+            if (_subscription.ApplyExpiryIfNeeded(user))
+                await _context.SaveChangesAsync();
+
             return Ok(new
             {
                 success = true,
-                data = new { user.Id, user.Email, user.FullName, user.PhoneNumber, user.Role, user.AvatarUrl }
+                data = new
+                {
+                    user.Id,
+                    user.Email,
+                    user.FullName,
+                    user.PhoneNumber,
+                    user.Role,
+                    user.AvatarUrl,
+                    user.Plan,
+                    user.PlanExpiry,
+                    daysRemaining = _subscription.GetDaysRemaining(user)
+                }
             });
         }
 

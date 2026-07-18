@@ -33,6 +33,9 @@ builder.Services.AddScoped<IOtpService, OtpService>();
 builder.Services.AddScoped<IEmailSender, EmailSender>();
 builder.Services.AddScoped<ISmsSender, SmsSender>();
 
+// Goi dang ky: toan bo luat goi/het han/nang quyen BTC nam trong service nay
+builder.Services.AddScoped<ISubscriptionService, SubscriptionService>();
+
 // HttpClient de goi API AI (Groq) tu AssistantController
 builder.Services.AddHttpClient();
 
@@ -114,6 +117,16 @@ using (var scope = app.Services.CreateScope())
 
         // Chi dam bao ket noi duoc DB (khong goi Migrate de tranh warning lam crash)
         db.Database.CanConnect();
+
+        // ===== CHI KHI CHAY LOCAL (Development) =====
+        // Tu tao database + toan bo bang tu model EF neu chua co.
+        // Nho vay test o may khong can chay SQL tay, va cac cot moi (Plan, PlanExpiry)
+        // duoc tao san. KHONG BAO GIO chay tren Production (DB that).
+        if (app.Environment.IsDevelopment())
+        {
+            db.Database.EnsureCreated();
+            Console.WriteLine("[Startup] Development: da dam bao database local co day du bang.");
+        }
 
         // Doc thong tin admin tu BIEN MOI TRUONG (KHONG hard-code mat khau de tranh lo).
         // BAO MAT: chi tao admin khi da cau hinh Admin:Password (bien moi truong Admin__Password).
