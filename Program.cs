@@ -125,7 +125,44 @@ using (var scope = app.Services.CreateScope())
         if (app.Environment.IsDevelopment())
         {
             db.Database.EnsureCreated();
-            Console.WriteLine("[Startup] Development: da dam bao database local co day du bang.");
+
+            // EnsureCreated CHI tao bang khi database CHUA ton tai.
+            // Neu DB local da co tu truoc, cot moi them vao model se KHONG duoc tao
+            // -> loi "Invalid column name". Nen tu them cot thieu tai day.
+            // An toan: co IF NOT EXISTS, chay lai bao nhieu lan cung khong sao.
+            // KHONG chay tren Production (DB that dung file SQL rieng).
+            var syncColumns = new[]
+            {
+                @"IF NOT EXISTS (SELECT 1 FROM sys.columns
+                      WHERE object_id = OBJECT_ID(N'dbo.Users') AND name = N'Plan')
+                  ALTER TABLE dbo.Users ADD [Plan] NVARCHAR(20) NOT NULL DEFAULT N'free';",
+
+                @"IF NOT EXISTS (SELECT 1 FROM sys.columns
+                      WHERE object_id = OBJECT_ID(N'dbo.Users') AND name = N'PlanExpiry')
+                  ALTER TABLE dbo.Users ADD PlanExpiry DATETIME2 NULL;",
+
+                @"IF NOT EXISTS (SELECT 1 FROM sys.columns
+                      WHERE object_id = OBJECT_ID(N'dbo.Users') AND name = N'TournamentsCreated')
+                  ALTER TABLE dbo.Users ADD TournamentsCreated INT NOT NULL DEFAULT 0;",
+
+                @"IF COL_LENGTH('dbo.Tournaments','Prize1') IS NULL
+                  ALTER TABLE dbo.Tournaments ADD Prize1 INT NOT NULL DEFAULT 0;",
+                @"IF COL_LENGTH('dbo.Tournaments','Prize2') IS NULL
+                  ALTER TABLE dbo.Tournaments ADD Prize2 INT NOT NULL DEFAULT 0;",
+                @"IF COL_LENGTH('dbo.Tournaments','Prize3') IS NULL
+                  ALTER TABLE dbo.Tournaments ADD Prize3 INT NOT NULL DEFAULT 0;",
+
+                @"IF COL_LENGTH('dbo.Matches','BracketSlot') IS NULL
+                  ALTER TABLE dbo.Matches ADD BracketSlot INT NOT NULL DEFAULT 0;",
+            };
+
+            foreach (var sql in syncColumns)
+            {
+                try { db.Database.ExecuteSqlRaw(sql); }
+                catch (Exception ex) { Console.WriteLine($"[Startup] Bo qua dong bo cot: {ex.Message}"); }
+            }
+
+            Console.WriteLine("[Startup] Development: database local da du bang va du cot.");
         }
 
         // Doc thong tin admin tu BIEN MOI TRUONG (KHONG hard-code mat khau de tranh lo).

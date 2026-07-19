@@ -44,6 +44,11 @@ namespace Appwebbongda.Models
         // Danh dau tran tranh hang 3 (knockout). false voi tran thuong.
         public bool IsThirdPlace { get; set; } = false;
 
+        // VI TRI CO DINH cua tran trong vong knockout (0, 1, 2, ...).
+        // Neu dua vao thu tu tran DA TAO thi khi nhap ket qua khong theo thu tu,
+        // doi thang se bi ghi de nham sang tran khac -> "trung doi".
+        public int BracketSlot { get; set; } = 0;
+
         [Required]
         public string Status { get; set; } = "Scheduled"; // Scheduled, Ongoing, Finished
     }

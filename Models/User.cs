@@ -46,6 +46,10 @@ namespace Appwebbongda.Models
         // Ngay het han goi (UTC). Null = khong co goi tra phi (goi free vinh vien).
         public DateTime? PlanExpiry { get; set; }
 
+        // TONG so giai da tao TU TRUOC DEN NAY (chi tang, khong bao gio giam).
+        // Dung cho han muc DUNG THU: xoa giai cu roi tao lai KHONG lay lai duoc luot.
+        public int TournamentsCreated { get; set; } = 0;
+
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     }
 }

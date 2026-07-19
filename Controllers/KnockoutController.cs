@@ -65,6 +65,7 @@ namespace Appwebbongda.Controllers
                 homePenalty = m.HomePenalty,
                 awayPenalty = m.AwayPenalty,
                 isThirdPlace = m.IsThirdPlace,
+                bracketSlot = m.BracketSlot,
                 status = m.Status
             };
         }
@@ -90,6 +91,63 @@ namespace Appwebbongda.Controllers
         {
             var data = await GetKnockoutMatches(tournamentId);
             return Ok(new { success = true, data });
+        }
+
+        // ===================================================================
+        // GET /api/knockout/{tournamentId}/qualified
+        // Danh sach doi SE vao vong knockout — xem TRUOC khi tao so do.
+        // Tinh tu bang xep hang cac bang, khong can da tao so do.
+        // ===================================================================
+        [HttpGet("{tournamentId}/qualified")]
+        public async Task<IActionResult> GetQualified(int tournamentId, [FromQuery] int? perGroup)
+        {
+            var tournament = await _context.Tournaments.FindAsync(tournamentId);
+            if (tournament == null)
+                return NotFound(new { success = false, message = "Khong tim thay giai dau." });
+
+            int take = perGroup ?? tournament.TeamsAdvancingPerGroup ?? 2;
+            var ids = await GetTopTeamsPerGroup(tournamentId, take);
+
+            // Lay thong tin doi theo dung THU TU da xep hang
+            var teams = await _context.Teams
+                .Where(t => ids.Contains(t.TeamId))
+                .ToListAsync();
+
+            var ordered = ids
+                .Select(id => teams.FirstOrDefault(t => t.TeamId == id))
+                .Where(t => t != null)
+                .Select((t, i) => new
+                {
+                    teamId = t!.TeamId,
+                    name = t.Name,
+                    logo = t.LogoUrl,
+                    groupName = t.GroupName,
+                    seed = i + 1                 // thu tu hat giong
+                })
+                .ToList();
+
+            // Ghep cap du kien (1 gap 2, 3 gap 4, ...) — giong luc tao so do
+            var pairs = new List<object>();
+            for (int i = 0; i + 1 < ordered.Count; i += 2)
+                pairs.Add(new { home = ordered[i], away = ordered[i + 1] });
+
+            // Da tao so do chua
+            bool daTaoSoDo = await _context.Matches
+                .AnyAsync(m => m.TournamentId == tournamentId && m.Round >= KNOCKOUT_BASE);
+
+            return Ok(new
+            {
+                success = true,
+                data = new
+                {
+                    teams = ordered,
+                    pairs,
+                    total = ordered.Count,
+                    perGroup = take,
+                    hasBracket = daTaoSoDo,
+                    enough = ordered.Count >= 2
+                }
+            });
         }
 
         // ===================================================================
@@ -141,16 +199,18 @@ namespace Appwebbongda.Controllers
             }
 
             // Tao cac tran vong dau (Round = KNOCKOUT_BASE)
-            foreach (var p in pairs)
+            // BracketSlot = vi tri cap dau (0,1,2...) -> biet doi thang di vao tran nao vong sau
+            for (int i = 0; i < pairs.Count; i++)
             {
                 _context.Matches.Add(new Match
                 {
                     TournamentId = tournamentId,
-                    HomeTeamId = p.home,
-                    AwayTeamId = p.away,
+                    HomeTeamId = pairs[i].home,
+                    AwayTeamId = pairs[i].away,
                     Round = KNOCKOUT_BASE,
                     Status = "Scheduled",
-                    IsThirdPlace = false
+                    IsThirdPlace = false,
+                    BracketSlot = i
                 });
             }
 
@@ -466,9 +526,18 @@ namespace Appwebbongda.Controllers
             // Neu vong hien tai chi co 1 tran -> day la chung ket, khong tao them
             if (currentRoundMatches.Count <= 1) return;
 
-            // Tim vi tri (index) cua tran hien tai trong vong
-            int idx = currentRoundMatches.FindIndex(m => m.MatchId == currentMatch.MatchId);
-            if (idx < 0) return;
+            // Tu va du lieu cu: tran tao truoc khi co BracketSlot deu = 0.
+            // Neu thay trung nhau thi gan lai theo thu tu MatchId.
+            if (currentRoundMatches.GroupBy(m => m.BracketSlot).Any(g => g.Count() > 1))
+            {
+                for (int i = 0; i < currentRoundMatches.Count; i++)
+                    currentRoundMatches[i].BracketSlot = i;
+                await _context.SaveChangesAsync();
+            }
+
+            var thisMatch = currentRoundMatches.FirstOrDefault(m => m.MatchId == currentMatch.MatchId);
+            if (thisMatch == null) return;
+            int idx = thisMatch.BracketSlot;   // vi tri CO DINH, khong doi theo thu tu tao
 
             // Tran vong sau ma doi thang se vao: idx / 2
             int nextIndex = idx / 2;
@@ -480,13 +549,15 @@ namespace Appwebbongda.Controllers
                 .OrderBy(m => m.MatchId)
                 .ToListAsync();
 
-            Match? nextMatch = nextIndex < nextRoundMatches.Count ? nextRoundMatches[nextIndex] : null;
+            // Tim theo BracketSlot chu KHONG theo vi tri trong danh sach da tao.
+            // Truoc day dung nextRoundMatches[nextIndex] -> neu cap sau xong truoc cap truoc
+            // thi ca hai deu tro vao [0] va GHI DE len nhau -> trung doi.
+            Match? nextMatch = nextRoundMatches.FirstOrDefault(m => m.BracketSlot == nextIndex);
 
             // 2 tran vong hien tai gop lai thanh 1 tran vong sau (idx chan + idx le)
             // Vi tri cua tran "anh em" (cung cap voi tran hien tai)
             int siblingIdx = isHomeSlot ? idx + 1 : idx - 1;
-            Match? sibling = (siblingIdx >= 0 && siblingIdx < currentRoundMatches.Count)
-                ? currentRoundMatches[siblingIdx] : null;
+            Match? sibling = currentRoundMatches.FirstOrDefault(m => m.BracketSlot == siblingIdx);
 
             // Lay doi thang cua tran anh em (neu tran do da xong)
             int? siblingWinner = (sibling != null) ? GetWinner(sibling) : null;
@@ -512,7 +583,8 @@ namespace Appwebbongda.Controllers
                     HomeTeamId = homeId,
                     AwayTeamId = awayId,
                     Status = "Scheduled",
-                    IsThirdPlace = false
+                    IsThirdPlace = false,
+                    BracketSlot = nextIndex    // BAT BUOC: de vong sau nua tim dung tran
                 };
                 _context.Matches.Add(nextMatch);
             }

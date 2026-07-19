@@ -53,7 +53,10 @@ namespace Appwebbongda.Services
                 new Claim(JwtRegisteredClaimNames.Sub, user.Id.ToString()),
                 new Claim(JwtRegisteredClaimNames.Email, user.Email),
                 new Claim("fullName", user.FullName),
-                new Claim(ClaimTypes.Role, user.Role),
+                // Role rong/null -> mac dinh "User".
+                // Neu de null, viec tao Claim se NEM LOI va khong dang nhap duoc.
+                new Claim(ClaimTypes.Role,
+                    string.IsNullOrWhiteSpace(user.Role) ? "User" : user.Role.Trim()),
                 new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString())
             };
 

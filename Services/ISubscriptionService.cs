@@ -71,7 +71,7 @@ namespace Appwebbongda.Services
             new PlanInfo
             {
                 Id = "free", Name = "FREE", PricePerMonth = 0,
-                MaxTournaments = 2, MaxTeamsPerTournament = 16,
+                MaxTournaments = 2, MaxTeamsPerTournament = 32,
                 GrantsOrganizerRole = false
             },
             new PlanInfo
