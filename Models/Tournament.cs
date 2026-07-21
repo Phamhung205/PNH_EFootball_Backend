@@ -47,6 +47,14 @@ namespace Appwebbongda.Models
         // Box chat: admin bat -> user da dang ky se thay box chat
         public bool ChatEnabled { get; set; } = false;
 
+        // ===== CÁC THUỘC TÍNH BỔ SUNG ĐỂ FIX LỖI CONTROLLER =====
+        public bool IsFree { get; set; } = true;         // Đánh dấu giải miễn phí (Mặc định true hoặc tuỳ logic của bạn)
+        public bool IsPaid { get; set; } = false;        // Đánh dấu đã thanh toán phí tạo giải chưa
+        public int ActivationFee { get; set; } = 0;      // Phí kích hoạt giải đấu
+        public DateTime? PaidAt { get; set; }
+
+        public string? PaymentNote { get; set; }     // Thời gian thanh toán (Nullable vì lúc đầu chưa thanh toán)
+
         // ===== THU PHI GIAI DAU =====
         public int EntryFee { get; set; } = 0;          // Phi 1 nguoi (VD 20000)
         public int AdminFee { get; set; } = 0;          // Phi cat cho admin (VD 15000)
@@ -56,7 +64,6 @@ namespace Appwebbongda.Models
         public int Prize1 { get; set; } = 0;            // Thuong top 1 (admin nhap tay)
         public int Prize2 { get; set; } = 0;            // Thuong top 2
         public int Prize3 { get; set; } = 0;            // Thuong top 3
-
 
         // Khởi tạo List rỗng để fix cảnh báo Null cho ICollection
         public ICollection<Group> Groups { get; set; } = new List<Group>();

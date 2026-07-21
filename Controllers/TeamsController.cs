@@ -24,6 +24,30 @@ namespace Appwebbongda.Controllers
             _subscription = subscription;
         }
 
+        /// <summary>
+        /// Chan neu giai CHUA KICH HOAT (chua tra phi).
+        /// Tra null neu duoc phep.
+        /// </summary>
+        private async Task<ObjectResult?> BlockIfNotActivatedAsync(int? tournamentId)
+        {
+            if (tournamentId == null) return null;
+            var t = await _context.Tournaments.FindAsync(tournamentId.Value);
+            if (t == null) return null;
+            if (t.IsPaid || t.IsFree) return null;
+            // Goi chung TinhPhiKichHoat de sua gia mot cho la ap dung moi noi
+            var fee = TournamentsController.TinhPhiKichHoat(t.MaxTeams);
+            return new ObjectResult(new
+            {
+                success = false,
+                code = "TOURNAMENT_NOT_ACTIVATED",
+                tournamentId = t.TournamentId,
+                fee,
+                message = $"Giải này chưa được kích hoạt. Vui lòng thanh toán {fee:N0}đ để mở khóa "
+                        + "chia bảng, xếp lịch, nhập tỉ số. Bạn vẫn thêm/xóa đội được trong lúc chờ."
+            })
+            { StatusCode = 402 };
+        }
+
         // ── QUYEN: Admin lam moi thu; nguoi khac chi thao tac tren giai CUA CHINH MINH ──
         private int? GetCurrentUserId()
         {
@@ -54,42 +78,44 @@ namespace Appwebbongda.Controllers
         }
 
         /// <summary>
-        /// Kiem tra han muc so doi cua giai.
-        /// Tinh theo goi cua NGUOI TAO GIAI (khong phai nguoi dang thao tac),
-        /// vi hien chi Admin duoc them doi nhung han muc thuoc ve chu giai.
-        /// Tra ve null neu con cho; nguoc lai tra ve thong bao loi.
+        /// Kiem tra so doi truoc khi them.
+        ///
+        /// MaxTeams chi la con so nguoi tao UOC LUONG luc tao giai, KHONG phai
+        /// gioi han cung. Neu ho them nhieu hon thi TU NOI RONG, khong chan —
+        /// vi phi tinh theo SO DOI THUC TE nen them cang nhieu tra cang dung.
+        ///
+        /// Tra ve null neu duoc phep; nguoc lai tra ve thong bao loi.
         /// </summary>
         private async Task<object?> CheckTeamQuotaAsync(Tournament tournament, int adding)
         {
-            if (tournament?.CreatedByUserId == null) return null;
-
-            var owner = await _context.Users.FindAsync(tournament.CreatedByUserId.Value);
-            if (owner == null) return null;
-
-            // Chu giai la Admin -> khong gioi han
-            if (string.Equals(owner.Role, "Admin", StringComparison.OrdinalIgnoreCase)) return null;
-
-            if (_subscription.ApplyExpiryIfNeeded(owner))
-                await _context.SaveChangesAsync();
-
-            var plan = _subscription.GetPlan(owner.Plan);
-            if (plan.MaxTeamsPerTournament < 0) return null;   // -1 = khong gioi han
+            if (tournament == null) return null;
 
             var current = await _context.Teams.CountAsync(t => t.TournamentId == tournament.TournamentId);
-            if (current + adding <= plan.MaxTeamsPerTournament) return null;
+            var total = current + adding;
 
-            var isFree = string.Equals(owner.Plan, "free", StringComparison.OrdinalIgnoreCase);
-            return new
+            // Chan cung o 256 doi de tranh nhap nham hoac pha hoai
+            const int HARD_LIMIT = 256;
+            if (total > HARD_LIMIT)
             {
-                success = false,
-                code = "PLAN_LIMIT_TEAMS",
-                plan = owner.Plan,
-                used = current,
-                limit = plan.MaxTeamsPerTournament,
-                message = isFree
-                    ? $"Giải này đã đạt giới hạn {plan.MaxTeamsPerTournament} đội của bản dùng thử. Vui lòng đăng ký gói để thêm đội."
-                    : $"Gói {plan.Name} chỉ cho phép {plan.MaxTeamsPerTournament} đội mỗi giải."
-            };
+                return new
+                {
+                    success = false,
+                    code = "TEAM_HARD_LIMIT",
+                    used = current,
+                    limit = HARD_LIMIT,
+                    message = $"Một giải chỉ nhận tối đa {HARD_LIMIT} đội. "
+                            + $"Bạn đang có {current} đội và muốn thêm {adding} đội nữa."
+                };
+            }
+
+            // Vuot con so da khai bao -> TU NOI RONG cho khop thuc te
+            if (total > tournament.MaxTeams)
+            {
+                tournament.MaxTeams = total;
+                await _context.SaveChangesAsync();
+            }
+
+            return null;   // luon cho them
         }
 
         public class TeamDto
@@ -376,6 +402,10 @@ namespace Appwebbongda.Controllers
         [Authorize]
         public async Task<IActionResult> SaveGroups(int tournamentId, [FromBody] SaveGroupsDto dto)
         {
+            // Giai chua kich hoat (chua tra phi) -> chan
+            var notPaid = await BlockIfNotActivatedAsync(tournamentId);
+            if (notPaid != null) return notPaid;
+
             var tournament = await _context.Tournaments.FindAsync(tournamentId);
             if (tournament == null)
                 return NotFound(new { success = false, message = $"Không tìm thấy giải đấu ID = {tournamentId}." });

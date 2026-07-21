@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Appwebbongda.Data;
 using Appwebbongda.Models;
+using System;
 using System.Linq;
 using System.Threading.Tasks;
 using System.Collections.Generic;
@@ -28,6 +29,13 @@ namespace Appwebbongda.Controllers
             public int GoalsAgainst { get; set; } // GA
             public int GoalDiff { get; set; } // GD
             public int Points { get; set; } // Pts
+
+            /// <summary>
+            /// Phong do 5 tran gan nhat, cu nhat -> moi nhat.
+            /// Moi phan tu: "W" thang, "D" hoa, "L" thua.
+            /// Vd ["L","W","W","D","W"] nghia la tran gan day nhat thang.
+            /// </summary>
+            public List<string> Form { get; set; } = new();
         }
 
         public StandingsController(AppDbContext context)
@@ -96,6 +104,30 @@ namespace Appwebbongda.Controllers
                 // Điểm số (Pts): Thắng = 3đ, Hòa = 1đ, Thua = 0đ
                 int points = won * 3 + drawn * 1;
 
+                // ── PHONG DO 5 TRAN GAN NHAT ──
+                // Gop ca san nha lan san khach, sap theo thu tu tran dien ra.
+                // Uu tien MatchDate; tran chua co ngay thi xep theo Round roi MatchId
+                // (day la thu tu he thong sinh lich nen van dung trinh tu).
+                var allGames = homeGames.Concat(awayGames)
+                    .OrderBy(m => m.MatchDate ?? DateTime.MinValue)
+                    .ThenBy(m => m.Round)
+                    .ThenBy(m => m.MatchId)
+                    .ToList();
+
+                // Lay 5 tran CUOI cung, giu nguyen thu tu cu -> moi
+                var form = allGames
+                    .Skip(Math.Max(0, allGames.Count - 5))
+                    .Select(m =>
+                    {
+                        bool laChuNha = m.HomeTeamId == team.TeamId;
+                        int banGhi = laChuNha ? (m.HomeScore ?? 0) : (m.AwayScore ?? 0);
+                        int banThua = laChuNha ? (m.AwayScore ?? 0) : (m.HomeScore ?? 0);
+                        if (banGhi > banThua) return "W";
+                        if (banGhi < banThua) return "L";
+                        return "D";
+                    })
+                    .ToList();
+
                 return new StandingDto
                 {
                     TeamId = team.TeamId,
@@ -108,7 +140,8 @@ namespace Appwebbongda.Controllers
                     GoalsFor = goalsFor,
                     GoalsAgainst = goalsAgainst,
                     GoalDiff = goalDiff,
-                    Points = points
+                    Points = points,
+                    Form = form
                 };
             })
             // 5. Sắp xếp giảm dần theo: Điểm số -> Hiệu số -> Tổng số bàn thắng -> Alphabet Tên Đội

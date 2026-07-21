@@ -19,11 +19,32 @@ namespace Appwebbongda.Controllers
     {
         private readonly AppDbContext _context;
         private readonly ISubscriptionService _subscription;
+        private readonly IConfiguration _config;
 
-        public TournamentsController(AppDbContext context, ISubscriptionService subscription)
+        // ── PHI KICH HOAT GIAI ──
+        // So giai MIEN PHI tron doi cho moi tai khoan.
+        public const int FREE_TOURNAMENT_SLOTS = 2;
+        // Muc phi theo quy mo giai (dong).
+        // DUOI 32 doi  -> 15.000d
+        // TU 32 doi tro len -> 25.000d (C1 36 doi, World Cup 48 doi...)
+        public const int FEE_SMALL = 15000;
+        public const int FEE_LARGE = 25000;
+        public const int LARGE_THRESHOLD = 32;   // tu moc nay tro len tinh gia cao
+
+        /// <summary>
+        /// Tinh phi kich hoat theo so doi cua giai.
+        /// He thong TU NHAN DIEN so doi user nhap, khong can chon goi.
+        ///   duoi 32 doi     -> 15.000d
+        ///   tu 32 doi tro len -> 25.000d
+        /// </summary>
+        public static int TinhPhiKichHoat(int maxTeams)
+            => maxTeams >= LARGE_THRESHOLD ? FEE_LARGE : FEE_SMALL;
+
+        public TournamentsController(AppDbContext context, ISubscriptionService subscription, IConfiguration config)
         {
             _context = context;
             _subscription = subscription;
+            _config = config;
         }
 
         /// <summary>
@@ -63,31 +84,12 @@ namespace Appwebbongda.Controllers
             if (_subscription.ApplyExpiryIfNeeded(user))
                 await _context.SaveChangesAsync();
 
-            var plan = _subscription.GetPlan(user.Plan);
-            if (plan.MaxTournaments < 0) return null;      // -1 = khong gioi han
-
-            var isFree = string.Equals(user.Plan, "free", StringComparison.OrdinalIgnoreCase);
-
-            // ── CACH DEM ──
-            // FREE (dung thu): dem TRON DOI -> xoa giai cu roi tao lai KHONG lay lai luot.
-            //                  Chong viec tao/xoa lien tuc de dung mai mien phi.
-            // TRA PHI: dem so giai DANG CO -> da tra tien thi xoa bot duoc tao lai.
-            int used = isFree
-                ? user.TournamentsCreated
-                : await _context.Tournaments.CountAsync(t => t.CreatedByUserId == uid.Value);
-
-            if (used < plan.MaxTournaments) return null;   // con han muc
-            return new
-            {
-                success = false,
-                code = "PLAN_LIMIT_TOURNAMENTS",
-                plan = user.Plan,
-                used,
-                limit = plan.MaxTournaments,
-                message = isFree
-                    ? $"Bạn đã dùng hết {plan.MaxTournaments} lượt tạo giải của bản dùng thử. Lượt đã dùng không lấy lại được kể cả khi xóa giải. Vui lòng đăng ký gói để tạo thêm."
-                    : $"Gói {plan.Name} chỉ cho phép {plan.MaxTournaments} giải đấu. Vui lòng nâng cấp gói."
-            };
+            // ── KHONG CON CHAN SO LUONG GIAI ──
+            // Truoc day: het 2 giai free la KHONG tao them duoc.
+            // Bay gio: ai cung tao duoc bao nhieu giai tuy thich, nhung tu giai
+            // thu 3 tro di phai TRA PHI moi mo khoa duoc (chia bang, xep lich...).
+            // Viec tinh phi nam o ham Create, khong chan o day nua.
+            return null;
         }
 
         // Lay id user tu token
@@ -248,6 +250,19 @@ namespace Appwebbongda.Controllers
                     message = "Không xác định được tài khoản. Vui lòng đăng xuất rồi đăng nhập lại."
                 });
 
+            // ── SUAT MIEN PHI TRON DOI ──
+            // 2 giai dau tien cua moi tai khoan la mien phi.
+            // Dem theo TournamentsCreated (tron doi) nen xoa giai KHONG lay lai suat,
+            // tranh viec tao/xoa lien tuc de dung mien phi mai.
+            // Admin luon mien phi.
+            int soGiaiDaTao = 0;
+            if (!IsAdmin())
+            {
+                var creatorForCount = await _context.Users.FindAsync(creatorId.Value);
+                soGiaiDaTao = creatorForCount?.TournamentsCreated ?? 0;
+            }
+            bool duocMienPhi = IsAdmin() || soGiaiDaTao < FREE_TOURNAMENT_SLOTS;
+
             var tournament = new Tournament
             {
                 Name = dto.Name,
@@ -262,7 +277,12 @@ namespace Appwebbongda.Controllers
                 AllowRegistration = dto.AllowRegistration ?? false,
                 LogoUrl = dto.LogoUrl,
                 Season = dto.Season,
-                ChatEnabled = dto.ChatEnabled ?? false
+                ChatEnabled = dto.ChatEnabled ?? false,
+
+                // ── PHI KICH HOAT ──
+                IsFree = duocMienPhi,
+                IsPaid = duocMienPhi,                       // mien phi = coi nhu da mo khoa
+                ActivationFee = duocMienPhi ? 0 : TinhPhiKichHoat(dto.MaxTeams ?? 16),
             };
 
             _context.Tournaments.Add(tournament);
@@ -303,7 +323,16 @@ namespace Appwebbongda.Controllers
             if (!string.IsNullOrWhiteSpace(dto.Format)) tournament.Format = dto.Format;
             if (!string.IsNullOrWhiteSpace(dto.Status)) tournament.Status = dto.Status;
             if (dto.Description != null) tournament.Description = dto.Description;
-            if (dto.MaxTeams.HasValue) tournament.MaxTeams = dto.MaxTeams.Value;
+            if (dto.MaxTeams.HasValue)
+            {
+                tournament.MaxTeams = dto.MaxTeams.Value;
+                // TU TINH LAI PHI khi doi so doi.
+                // Vd: tao giai 16 doi (15k) roi sua thanh 36 doi -> phai thanh 25k.
+                // Chi tinh lai khi giai CHUA tra tien va KHONG phai suat mien phi,
+                // tranh doi phi cua giai da thanh toan xong.
+                if (!tournament.IsPaid && !tournament.IsFree)
+                    tournament.ActivationFee = TinhPhiKichHoat(tournament.MaxTeams);
+            }
             if (dto.StartDate.HasValue) tournament.StartDate = dto.StartDate.Value;
             if (dto.AllowRegistration.HasValue) tournament.AllowRegistration = dto.AllowRegistration.Value;
             if (dto.LogoUrl != null) tournament.LogoUrl = dto.LogoUrl;
@@ -342,41 +371,57 @@ namespace Appwebbongda.Controllers
             using var tx = await _context.Database.BeginTransactionAsync();
             try
             {
-                var matches = await _context.Matches.Where(m => m.TournamentId == id).ToListAsync();
-                if (matches.Count > 0) _context.Matches.RemoveRange(matches);
+                // Dung SQL truc tiep thay vi tai het vao bo nho roi RemoveRange.
+                // Ly do: EF chi xoa duoc nhung ban ghi no DA THEO DOI, neu co ban ghi
+                // "mo coi" (vd tran tro toi doi da bi xoa) thi RemoveRange bo sot,
+                // va rang buoc khoa ngoai van chan -> loi khong ro nguyen nhan.
+                var sql = _context.Database;
 
-                var chats = await _context.ChatMessages.Where(c => c.TournamentId == id).ToListAsync();
-                if (chats.Count > 0) _context.ChatMessages.RemoveRange(chats);
+                // 1. Matches — tro toi Teams va Tournament
+                var soTran = await sql.ExecuteSqlRawAsync(
+                    "DELETE FROM Matches WHERE TournamentId = {0}", id);
 
-                var regs = await _context.Registrations.Where(r => r.TournamentId == id).ToListAsync();
-                if (regs.Count > 0) _context.Registrations.RemoveRange(regs);
+                // 2. ChatMessages — tro toi Tournament
+                var soChat = await sql.ExecuteSqlRawAsync(
+                    "DELETE FROM ChatMessages WHERE TournamentId = {0}", id);
 
-                await _context.SaveChangesAsync();   // xoa xong nhom phu thuoc Teams
+                // 3. Registrations — tro toi Tournament va Teams
+                var soDangKy = await sql.ExecuteSqlRawAsync(
+                    "DELETE FROM Registrations WHERE TournamentId = {0}", id);
 
-                var teams = await _context.Teams.Where(t => t.TournamentId == id).ToListAsync();
-                if (teams.Count > 0) _context.Teams.RemoveRange(teams);
+                // 4. Teams — phai xoa SAU Matches va Registrations
+                var soDoi = await sql.ExecuteSqlRawAsync(
+                    "DELETE FROM Teams WHERE TournamentId = {0}", id);
 
-                var groups = await _context.Groups.Where(g => g.TournamentId == id).ToListAsync();
-                if (groups.Count > 0) _context.Groups.RemoveRange(groups);
+                // 5. Groups
+                var soBang = await sql.ExecuteSqlRawAsync(
+                    "DELETE FROM Groups WHERE TournamentId = {0}", id);
 
-                await _context.SaveChangesAsync();
-
-                _context.Tournaments.Remove(tournament);
-                await _context.SaveChangesAsync();
+                // 6. Cuoi cung moi xoa chinh giai
+                await sql.ExecuteSqlRawAsync(
+                    "DELETE FROM Tournaments WHERE TournamentId = {0}", id);
 
                 await tx.CommitAsync();
 
-                Console.WriteLine($"[Delete] Da xoa giai #{id}: {matches.Count} tran, {teams.Count} doi, " +
-                                  $"{groups.Count} bang, {regs.Count} dang ky, {chats.Count} tin nhan.");
+                Console.WriteLine($"[Delete] Da xoa giai #{id}: {soTran} tran, {soDoi} doi, " +
+                                  $"{soBang} bang, {soDangKy} dang ky, {soChat} tin nhan.");
             }
             catch (Exception ex)
             {
                 await tx.RollbackAsync();   // loi giua chung -> tra ve nguyen trang, khong mat du lieu
+
+                // Ghi ro nguyen nhan ra log de con biet duong sua
+                var goc = ex.InnerException?.Message ?? ex.Message;
+                Console.WriteLine($"[Delete] LOI xoa giai #{id}: {goc}");
+
+                // Tra ca nguyen nhan goc ve cho frontend, khong giau nua.
+                // Truoc day chi bao "Khong xoa duoc" nen khong biet vuong bang nao.
                 return StatusCode(500, new
                 {
                     success = false,
-                    message = "Không xóa được giải đấu. Dữ liệu đã được giữ nguyên.",
-                    detail = ex.InnerException?.Message ?? ex.Message
+                    code = "DELETE_FAILED",
+                    message = "Không xóa được giải đấu. Dữ liệu đã được giữ nguyên. Chi tiết: " + goc,
+                    detail = goc
                 });
             }
 
@@ -403,6 +448,24 @@ namespace Appwebbongda.Controllers
                 // BTC chi duoc doi trang thai giai do chinh minh tao
                 if (!CanEditTournament(tournament))
                     return StatusCode(403, new { success = false, code = "NOT_OWNER", message = "Bạn chỉ đổi được trạng thái giải do chính mình tạo." });
+
+                // CHUA TRA PHI -> khong duoc chuyen sang "Dang dien ra" hay "Hoan thanh".
+                // Giai phai duoc kich hoat thi moi bat dau thi dau duoc.
+                // Van cho de "Sap khoi tranh" (trang thai mac dinh khi moi tao).
+                if (!tournament.IsPaid && !tournament.IsFree && dto.Status != "Sắp khởi tranh")
+                {
+                    var phi = tournament.ActivationFee > 0 ? tournament.ActivationFee
+                            : TinhPhiKichHoat(tournament.MaxTeams);
+                    return StatusCode(402, new
+                    {
+                        success = false,
+                        code = "TOURNAMENT_NOT_ACTIVATED",
+                        tournamentId = tournament.TournamentId,
+                        fee = phi,
+                        message = $"Giải chưa được kích hoạt nên không thể bắt đầu. "
+                                + $"Vui lòng thanh toán {phi:N0}đ để mở khóa giải."
+                    });
+                }
 
                 tournament.Status = dto.Status;
                 await _context.SaveChangesAsync();
@@ -446,6 +509,274 @@ namespace Appwebbongda.Controllers
             if (t == null) return NotFound(new { success = false, message = "Khong tim thay." });
             double avg = t.RatingCount > 0 ? (double)t.RatingSum / t.RatingCount : 0;
             return Ok(new { success = true, average = Math.Round(avg, 1), count = t.RatingCount });
+        }
+        // ===================================================================
+        // PHI KICH HOAT GIAI
+        // ===================================================================
+
+        /// <summary>
+        /// Bo dau tieng Viet va ky tu dac biet.
+        /// Napas/VietQR chi chap nhan chu khong dau; de dau se lam nhieu app
+        /// ngan hang bao loi hoac cat mat chuoi.
+        /// </summary>
+        private static string BoDau(string? s)
+        {
+            if (string.IsNullOrWhiteSpace(s)) return string.Empty;
+            var norm = s.Normalize(System.Text.NormalizationForm.FormD);
+            var sb = new System.Text.StringBuilder();
+            foreach (var c in norm)
+            {
+                // Bo cac dau thanh/dau mu
+                if (System.Globalization.CharUnicodeInfo.GetUnicodeCategory(c)
+                    == System.Globalization.UnicodeCategory.NonSpacingMark) continue;
+                if (c == 'đ') { sb.Append('d'); continue; }
+                if (c == 'Đ') { sb.Append('D'); continue; }
+                // Chi giu chu, so va khoang trang
+                if (char.IsLetterOrDigit(c) || c == ' ') sb.Append(c);
+                else sb.Append(' ');
+            }
+            // Gop nhieu khoang trang lien tiep thanh mot
+            var result = System.Text.RegularExpressions.Regex
+                .Replace(sb.ToString(), @"\s+", " ").Trim();
+            return result;
+        }
+
+        /// <summary>
+        /// Tao noi dung chuyen khoan: "PNH{id} {ten giai} {nguoi tao}".
+        ///
+        /// Ma PNH{id} LUON dung dau va khong bao gio bi cat — day la thu Admin
+        /// dung de biet tien tra cho giai nao. Ten giai va ten nguoi chi la
+        /// thong tin phu, se bi cat neu vuot 50 ky tu (gioi han cua Napas).
+        /// </summary>
+        private static string TaoNoiDungCK(int tournamentId, string? tenGiai, string? nguoiTao)
+        {
+            const int MAX = 50;
+            var ma = $"PNH{tournamentId}";
+            var phan = BoDau(tenGiai);
+            var nguoi = BoDau(nguoiTao);
+
+            var noiDung = ma;
+            // Them ten giai neu con cho
+            if (phan.Length > 0 && noiDung.Length + 1 + phan.Length <= MAX)
+                noiDung += " " + phan;
+            else if (phan.Length > 0 && noiDung.Length + 2 < MAX)
+                noiDung += " " + phan.Substring(0, MAX - noiDung.Length - 1);
+
+            // Them nguoi tao neu van con cho
+            if (nguoi.Length > 0 && noiDung.Length + 1 + nguoi.Length <= MAX)
+                noiDung += " " + nguoi;
+
+            return noiDung.Length > MAX ? noiDung.Substring(0, MAX).Trim() : noiDung;
+        }
+
+        /// <summary>
+        /// GET /api/tournaments/{id}/activation
+        /// Frontend goi de biet giai da mo khoa chua, con thieu bao nhieu tien,
+        /// va lay thong tin chuyen khoan + ma QR.
+        /// </summary>
+        [HttpGet("{id}/activation")]
+        public async Task<IActionResult> GetActivation(int id)
+        {
+            var t = await _context.Tournaments.FindAsync(id);
+            if (t == null)
+                return NotFound(new { success = false, message = $"Không tìm thấy giải đấu ID = {id}." });
+
+            // Lay ten nguoi tao de ghep vao noi dung chuyen khoan
+            string? tenNguoiTao = null;
+            if (t.CreatedByUserId != null)
+            {
+                var owner = await _context.Users.FindAsync(t.CreatedByUserId.Value);
+                tenNguoiTao = owner?.FullName ?? owner?.Email;
+            }
+
+            // Noi dung day du: "PNH8 World Cup 2026 Pham Ngoc Hung"
+            var maDoiSoat = TaoNoiDungCK(t.TournamentId, t.Name, tenNguoiTao);
+
+            // ── DEM SO DOI THAT DA NHAP ──
+            // Phi tinh theo so doi THUC TE trong giai, khong phai con so MaxTeams
+            // khai bao luc tao. Chua nhap doi nao thi chua tinh duoc phi.
+            var soDoi = await _context.Teams.CountAsync(x => x.TournamentId == t.TournamentId);
+            var coDoi = soDoi > 0;
+
+            // Chua co doi -> phi = 0 va bao frontend biet de hien loi nhac nhap doi
+            var phi = coDoi ? TinhPhiKichHoat(soDoi) : 0;
+
+            // Dong bo lai vao DB neu lech (giai chua tra tien)
+            if (coDoi && !t.IsPaid && !t.IsFree && t.ActivationFee != phi)
+            {
+                t.ActivationFee = phi;
+                await _context.SaveChangesAsync();
+            }
+
+            return Ok(new
+            {
+                success = true,
+                data = new
+                {
+                    tournamentId = t.TournamentId,
+                    isPaid = t.IsPaid,
+                    isFree = t.IsFree,
+                    fee = t.IsPaid ? 0 : phi,
+                    maxTeams = t.MaxTeams,
+                    // So doi THUC TE da nhap — frontend dung de biet co hien QR hay khong
+                    teamCount = soDoi,
+                    hasTeams = coDoi,
+                    paidAt = t.PaidAt,
+                    paymentNote = maDoiSoat,
+                    // Thong tin chuyen khoan — doc tu cau hinh, khong hard-code
+                    bank = _config["Payment:BankCode"] ?? "",
+                    bankName = _config["Payment:BankName"] ?? "",
+                    accountNumber = _config["Payment:AccountNumber"] ?? "",
+                    accountName = _config["Payment:AccountName"] ?? "",
+                    // Chua co doi -> KHONG sinh QR (so tien = 0, quet vao se sai)
+                    qrUrl = coDoi ? BuildVietQrUrl(phi, maDoiSoat) : "",
+                    // Lien he Zalo de duyet nhanh
+                    zaloPhone = _config["Payment:ZaloPhone"] ?? "",
+                    zaloName = _config["Payment:ZaloName"] ?? "",
+                }
+            });
+        }
+
+        /// <summary>
+        /// Tao link anh QR VietQR (mien phi, khong can dang ky).
+        /// Nguoi dung quet la app ngan hang tu dien so tien + noi dung -> giam sai sot.
+        /// </summary>
+        private string BuildVietQrUrl(int amount, string note)
+        {
+            var bank = _config["Payment:BankCode"];
+            var acc = _config["Payment:AccountNumber"];
+            var name = _config["Payment:AccountName"] ?? "";
+            if (string.IsNullOrWhiteSpace(bank) || string.IsNullOrWhiteSpace(acc))
+                return "";
+            return $"https://img.vietqr.io/image/{bank}-{acc}-compact2.png"
+                 + $"?amount={amount}&addInfo={Uri.EscapeDataString(note)}"
+                 + $"&accountName={Uri.EscapeDataString(name)}";
+        }
+
+        /// <summary>
+        /// POST /api/tournaments/{id}/confirm-payment — CHI ADMIN
+        /// Admin doi chieu sao ke ngan hang roi bam xac nhan de mo khoa giai.
+        /// </summary>
+        [HttpPost("{id}/confirm-payment")]
+        [Authorize(Roles = "Admin")]
+        public async Task<IActionResult> ConfirmPayment(int id)
+        {
+            var t = await _context.Tournaments.FindAsync(id);
+            if (t == null)
+                return NotFound(new { success = false, message = $"Không tìm thấy giải đấu ID = {id}." });
+
+            if (t.IsPaid)
+                return Ok(new { success = true, message = "Giải này đã được mở khóa từ trước." });
+
+            t.IsPaid = true;
+            t.PaidAt = DateTime.UtcNow;
+            t.PaymentNote = $"PNH{t.TournamentId}";
+            await _context.SaveChangesAsync();
+
+            return Ok(new { success = true, message = "Đã mở khóa giải đấu.", data = t });
+        }
+
+        /// <summary>
+        /// POST /api/tournaments/{id}/revoke-payment — CHI ADMIN
+        /// Thu hoi khi xac nhan nham (vd chuyen khoan bi hoan).
+        /// </summary>
+        [HttpPost("{id}/revoke-payment")]
+        [Authorize(Roles = "Admin")]
+        public async Task<IActionResult> RevokePayment(int id)
+        {
+            var t = await _context.Tournaments.FindAsync(id);
+            if (t == null)
+                return NotFound(new { success = false, message = $"Không tìm thấy giải đấu ID = {id}." });
+
+            // Giai nam trong suat mien phi thi khong the thu hoi
+            if (t.IsFree)
+                return BadRequest(new { success = false, message = "Giải này thuộc suất miễn phí, không thể thu hồi." });
+
+            t.IsPaid = false;
+            t.PaidAt = null;
+            await _context.SaveChangesAsync();
+            return Ok(new { success = true, message = "Đã thu hồi trạng thái thanh toán." });
+        }
+
+        /// <summary>
+        /// GET /api/tournaments/pending-payments?q=&amp;status= — CHI ADMIN
+        /// Danh sach giai cho duyet thanh toan.
+        /// q      : tim theo Gmail HOAC ten nguoi dang ky HOAC ten giai HOAC ma doi soat
+        /// status : "pending" (mac dinh) | "approved" | "all"
+        /// </summary>
+        [HttpGet("pending-payments")]
+        [Authorize(Roles = "Admin")]
+        public async Task<IActionResult> PendingPayments([FromQuery] string? q, [FromQuery] string? status)
+        {
+            // Chi xet cac giai CO TINH PHI (bo qua giai mien phi tron doi)
+            var query = _context.Tournaments.Where(t => !t.IsFree);
+
+            // Loc theo trang thai duyet
+            var st = (status ?? "pending").ToLowerInvariant();
+            if (st == "pending") query = query.Where(t => !t.IsPaid);
+            else if (st == "approved") query = query.Where(t => t.IsPaid);
+            // "all" -> khong loc
+
+            // Ghep voi bang Users de tim duoc theo Gmail / ten nguoi dang ky
+            var joined = from t in query
+                         join u in _context.Users on t.CreatedByUserId equals u.Id into gj
+                         from u in gj.DefaultIfEmpty()
+                         select new
+                         {
+                             t.TournamentId,
+                             t.Name,
+                             t.MaxTeams,
+                             t.ActivationFee,
+                             t.IsPaid,
+                             t.PaidAt,
+                             t.Status,
+                             t.Format,
+                             ownerEmail = u != null ? u.Email : null,
+                             ownerName = u != null ? (u.FullName ?? u.Email) : null,
+                             ownerId = u != null ? (int?)u.Id : null,
+                         };
+
+            // Tim kiem: khop Gmail, ten nguoi, ten giai, hoac ma doi soat (PNH12 / 12)
+            if (!string.IsNullOrWhiteSpace(q))
+            {
+                var key = q.Trim().ToLower();
+                // Cho phep go "PNH12" hoac "12" de tim thang theo ma doi soat
+                var keyId = key.StartsWith("pnh") ? key.Substring(3) : key;
+                int.TryParse(keyId, out int idFromKey);
+
+                joined = joined.Where(x =>
+                    (x.ownerEmail != null && x.ownerEmail.ToLower().Contains(key)) ||
+                    (x.ownerName != null && x.ownerName.ToLower().Contains(key)) ||
+                    x.Name.ToLower().Contains(key) ||
+                    (idFromKey > 0 && x.TournamentId == idFromKey));
+            }
+
+            var list = await joined
+                .OrderByDescending(x => x.TournamentId)
+                .Take(200)
+                .ToListAsync();
+
+            // Them ma doi soat vao ket qua (tinh ngoai DB cho don gian)
+            var result = list.Select(x => new
+            {
+                x.TournamentId,
+                x.Name,
+                x.MaxTeams,
+                x.ActivationFee,
+                x.IsPaid,
+                x.PaidAt,
+                x.Status,
+                x.Format,
+                x.ownerEmail,
+                x.ownerName,
+                x.ownerId,
+                // Noi dung CK day du, GIONG HET cai BTC nhin thay khi chuyen khoan
+                paymentNote = TaoNoiDungCK(x.TournamentId, x.Name, x.ownerName),
+                // Ma ngan de tim nhanh trong sao ke
+                shortCode = "PNH" + x.TournamentId,
+            });
+
+            return Ok(new { success = true, data = result });
         }
     }
 }

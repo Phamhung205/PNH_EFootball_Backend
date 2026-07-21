@@ -21,6 +21,30 @@ namespace Appwebbongda.Controllers
             _context = context;
         }
 
+        /// <summary>
+        /// Chan neu giai CHUA KICH HOAT (chua tra phi).
+        /// Tra null neu duoc phep.
+        /// </summary>
+        private async Task<ObjectResult?> BlockIfNotActivatedAsync(int? tournamentId)
+        {
+            if (tournamentId == null) return null;
+            var t = await _context.Tournaments.FindAsync(tournamentId.Value);
+            if (t == null) return null;
+            if (t.IsPaid || t.IsFree) return null;
+            // Goi chung TinhPhiKichHoat de sua gia mot cho la ap dung moi noi
+            var fee = TournamentsController.TinhPhiKichHoat(t.MaxTeams);
+            return new ObjectResult(new
+            {
+                success = false,
+                code = "TOURNAMENT_NOT_ACTIVATED",
+                tournamentId = t.TournamentId,
+                fee,
+                message = $"Giải này chưa được kích hoạt. Vui lòng thanh toán {fee:N0}đ để mở khóa "
+                        + "chia bảng, xếp lịch, nhập tỉ số. Bạn vẫn thêm/xóa đội được trong lúc chờ."
+            })
+            { StatusCode = 402 };
+        }
+
         // DTO cập nhật tỉ số
         public class UpdateScoreDto
         {
@@ -81,6 +105,10 @@ namespace Appwebbongda.Controllers
         [Authorize(Roles = "Admin")]
         public async Task<IActionResult> GenerateSchedule(int tournamentId, [FromBody] GenerateScheduleDto? dto)
         {
+            // Giai chua kich hoat (chua tra phi) -> chan
+            var notPaid = await BlockIfNotActivatedAsync(tournamentId);
+            if (notPaid != null) return notPaid;
+
             var tournament = await _context.Tournaments.FindAsync(tournamentId);
             if (tournament == null)
                 return NotFound(new { success = false, message = $"Không tìm thấy giải đấu ID = {tournamentId}." });
@@ -221,6 +249,10 @@ namespace Appwebbongda.Controllers
                 if (match == null)
                     return NotFound(new { success = false, message = $"Không tìm thấy trận đấu ID = {id}." });
 
+                // Giai chua kich hoat -> khong nhap ti so duoc
+                var notPaidScore = await BlockIfNotActivatedAsync(match.TournamentId);
+                if (notPaidScore != null) return notPaidScore;
+
                 match.HomeScore = dto.HomeScore;
                 match.AwayScore = dto.AwayScore;
                 match.Status = "Completed";
@@ -274,6 +306,10 @@ namespace Appwebbongda.Controllers
         [Authorize(Roles = "Admin")]
         public async Task<IActionResult> ClearSchedule(int tournamentId)
         {
+            // Giai chua kich hoat (chua tra phi) -> chan
+            var notPaid = await BlockIfNotActivatedAsync(tournamentId);
+            if (notPaid != null) return notPaid;
+
             var matches = await _context.Matches
                 .Where(m => m.TournamentId == tournamentId)
                 .ToListAsync();

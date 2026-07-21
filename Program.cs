@@ -154,6 +154,27 @@ using (var scope = app.Services.CreateScope())
 
                 @"IF COL_LENGTH('dbo.Matches','BracketSlot') IS NULL
                   ALTER TABLE dbo.Matches ADD BracketSlot INT NOT NULL DEFAULT 0;",
+
+                // ── PHI KICH HOAT GIAI ──
+                @"IF COL_LENGTH('dbo.Tournaments','IsPaid') IS NULL
+                  ALTER TABLE dbo.Tournaments ADD IsPaid BIT NOT NULL DEFAULT 0;",
+                @"IF COL_LENGTH('dbo.Tournaments','IsFree') IS NULL
+                  ALTER TABLE dbo.Tournaments ADD IsFree BIT NOT NULL DEFAULT 0;",
+                @"IF COL_LENGTH('dbo.Tournaments','ActivationFee') IS NULL
+                  ALTER TABLE dbo.Tournaments ADD ActivationFee INT NOT NULL DEFAULT 0;",
+                @"IF COL_LENGTH('dbo.Tournaments','PaidAt') IS NULL
+                  ALTER TABLE dbo.Tournaments ADD PaidAt DATETIME2 NULL;",
+                @"IF COL_LENGTH('dbo.Tournaments','PaymentNote') IS NULL
+                  ALTER TABLE dbo.Tournaments ADD PaymentNote NVARCHAR(50) NULL;",
+
+                // MO KHOA GIAI CU — cac giai tao truoc khi co tinh nang phi deu co
+                // IsPaid = 0. Neu khong xu ly, nguoi dung dang dung binh thuong bong
+                // dung bi khoa het.
+                // Dieu kien ActivationFee = 0 AND PaidAt IS NULL nhan dien dung "giai cu":
+                // giai MOI chua tra tien luon co ActivationFee > 0 (30000/35000) nen
+                // KHONG bi cau lenh nay mo khoa nham.
+                @"UPDATE dbo.Tournaments SET IsFree = 1, IsPaid = 1
+                  WHERE IsPaid = 0 AND IsFree = 0 AND ActivationFee = 0 AND PaidAt IS NULL;",
             };
 
             foreach (var sql in syncColumns)
