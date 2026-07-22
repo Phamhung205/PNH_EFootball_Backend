@@ -474,10 +474,6 @@ namespace Appwebbongda.Controllers
                     message = "Bạn chỉ chia bảng được cho giải do chính mình tạo."
                 });
 
-            var teams = await _context.Teams
-                .Where(t => t.TournamentId == tournamentId)
-                .ToListAsync();
-
             var assign = new Dictionary<int, string>();
             if (dto?.Groups != null)
             {
@@ -486,11 +482,39 @@ namespace Appwebbongda.Controllers
                         assign[teamId] = kv.Key;
             }
 
-            foreach (var team in teams)
-                team.GroupName = assign.TryGetValue(team.TeamId, out var g) ? g : null;
+            // Cap nhat bang SQL truc tiep, KHONG tai het doi vao bo nho roi luu tung cai.
+            // Cach cu voi 48 doi cham -> timeout tren DB MonsterASP.
+            //
+            // Buoc 1: xoa het phan bang cu cua giai (ve NULL).
+            // Buoc 2: gan bang moi theo tung nhom teamId.
+            await _context.Database.ExecuteSqlRawAsync(
+                "UPDATE Teams SET GroupName = NULL WHERE TournamentId = {0}", tournamentId);
 
-            await _context.SaveChangesAsync();
-            return Ok(new { success = true, message = "Lưu phân bảng thành công!", data = teams });
+            // Gom cac doi theo ten bang -> moi bang 1 lenh UPDATE ... WHERE TeamId IN (...)
+            var theoNhom = assign
+                .GroupBy(kv => kv.Value)
+                .ToList();
+
+            foreach (var nhom in theoNhom)
+            {
+                var ids = nhom.Select(kv => kv.Key).ToList();
+                if (ids.Count == 0) continue;
+
+                // Tao chuoi tham so @p1,@p2,... an toan (tranh SQL injection)
+                var thamSo = new List<object> { nhom.Key, tournamentId };
+                var placeholders = new List<string>();
+                for (int i = 0; i < ids.Count; i++)
+                {
+                    placeholders.Add("{" + (i + 2) + "}");   // {2},{3},... vi {0}=ten bang, {1}=tournamentId
+                    thamSo.Add(ids[i]);
+                }
+
+                var sql = $"UPDATE Teams SET GroupName = {{0}} " +
+                          $"WHERE TournamentId = {{1}} AND TeamId IN ({string.Join(",", placeholders)})";
+                await _context.Database.ExecuteSqlRawAsync(sql, thamSo.ToArray());
+            }
+
+            return Ok(new { success = true, message = "Lưu phân bảng thành công!" });
         }
 
         [HttpGet("tournaments/{tournamentId}/groups")]

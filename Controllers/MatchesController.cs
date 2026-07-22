@@ -310,13 +310,12 @@ namespace Appwebbongda.Controllers
             var notPaid = await BlockIfNotActivatedAsync(tournamentId);
             if (notPaid != null) return notPaid;
 
-            var matches = await _context.Matches
-                .Where(m => m.TournamentId == tournamentId)
-                .ToListAsync();
-            _context.Matches.RemoveRange(matches);
-            await _context.SaveChangesAsync();
+            // Xoa THANG bang 1 lenh SQL, KHONG tai 72 tran vao bo nho roi xoa tung cai.
+            // Cach cu qua cham voi DB MonsterASP -> timeout. Cach nay nhanh gap nhieu lan.
+            var soXoa = await _context.Database.ExecuteSqlRawAsync(
+                "DELETE FROM Matches WHERE TournamentId = {0}", tournamentId);
 
-            return Ok(new { success = true, message = "Đã xóa toàn bộ lịch thi đấu." });
+            return Ok(new { success = true, message = $"Đã xóa {soXoa} trận trong lịch thi đấu." });
         }
     }
 }
