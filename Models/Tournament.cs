@@ -48,12 +48,19 @@ namespace Appwebbongda.Models
         public bool ChatEnabled { get; set; } = false;
 
         // ===== CÁC THUỘC TÍNH BỔ SUNG ĐỂ FIX LỖI CONTROLLER =====
-        public bool IsFree { get; set; } = true;         // Đánh dấu giải miễn phí (Mặc định true hoặc tuỳ logic của bạn)
+        // IsFree mac dinh FALSE: chi giai nam trong 2 suat mien phi tron doi moi
+        // duoc gan true (xem ham Create). De true o day thi MOI giai deu mien phi.
+        public bool IsFree { get; set; } = false;
         public bool IsPaid { get; set; } = false;        // Đánh dấu đã thanh toán phí tạo giải chưa
         public int ActivationFee { get; set; } = 0;      // Phí kích hoạt giải đấu
-        public DateTime? PaidAt { get; set; }
+        public DateTime? PaidAt { get; set; }            // Thoi diem ADMIN xac nhan da nhan tien
 
-        public string? PaymentNote { get; set; }     // Thời gian thanh toán (Nullable vì lúc đầu chưa thanh toán)
+        public string? PaymentNote { get; set; }         // Ma doi soat, vd "PNH12"
+
+        // Nguoi tao giai bam "Toi da chuyen khoan" luc nao.
+        // Admin loc theo cot nay de biet ai can kiem tra truoc, khong phai do het
+        // danh sach. Khac PaidAt: day la BTC TU BAO, chua duoc xac nhan.
+        public DateTime? PaymentClaimedAt { get; set; }
 
         // ===== THU PHI GIAI DAU =====
         public int EntryFee { get; set; } = 0;          // Phi 1 nguoi (VD 20000)

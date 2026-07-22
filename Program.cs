@@ -166,6 +166,8 @@ using (var scope = app.Services.CreateScope())
                   ALTER TABLE dbo.Tournaments ADD PaidAt DATETIME2 NULL;",
                 @"IF COL_LENGTH('dbo.Tournaments','PaymentNote') IS NULL
                   ALTER TABLE dbo.Tournaments ADD PaymentNote NVARCHAR(50) NULL;",
+                @"IF COL_LENGTH('dbo.Tournaments','PaymentClaimedAt') IS NULL
+                  ALTER TABLE dbo.Tournaments ADD PaymentClaimedAt DATETIME2 NULL;",
 
                 // MO KHOA GIAI CU — cac giai tao truoc khi co tinh nang phi deu co
                 // IsPaid = 0. Neu khong xu ly, nguoi dung dang dung binh thuong bong

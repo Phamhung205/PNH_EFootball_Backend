@@ -622,6 +622,9 @@ namespace Appwebbongda.Controllers
                     teamCount = soDoi,
                     hasTeams = coDoi,
                     paidAt = t.PaidAt,
+                    // BTC da bam "Toi da chuyen khoan" chua (de an/hien nut)
+                    claimed = t.PaymentClaimedAt != null,
+                    claimedAt = t.PaymentClaimedAt,
                     paymentNote = maDoiSoat,
                     // Thong tin chuyen khoan — doc tu cau hinh, khong hard-code
                     bank = _config["Payment:BankCode"] ?? "",
@@ -651,6 +654,36 @@ namespace Appwebbongda.Controllers
             return $"https://img.vietqr.io/image/{bank}-{acc}-compact2.png"
                  + $"?amount={amount}&addInfo={Uri.EscapeDataString(note)}"
                  + $"&accountName={Uri.EscapeDataString(name)}";
+        }
+
+        /// <summary>
+        /// POST /api/tournaments/{id}/claim-payment
+        /// BTC bam "Tôi đã chuyển khoản" -> danh dau de Admin biet ma kiem tra truoc.
+        /// KHONG mo khoa giai — chi Admin duyet moi mo khoa duoc.
+        /// </summary>
+        [HttpPost("{id}/claim-payment")]
+        [Authorize]
+        public async Task<IActionResult> ClaimPayment(int id)
+        {
+            var t = await _context.Tournaments.FindAsync(id);
+            if (t == null)
+                return NotFound(new { success = false, message = $"Không tìm thấy giải đấu ID = {id}." });
+
+            // Chi nguoi tao giai (hoac Admin) moi bao duoc
+            if (!CanEditTournament(t))
+                return StatusCode(403, new { success = false, message = "Bạn chỉ báo được cho giải do chính mình tạo." });
+
+            if (t.IsPaid || t.IsFree)
+                return Ok(new { success = true, message = "Giải này đã được mở khóa rồi." });
+
+            t.PaymentClaimedAt = DateTime.UtcNow;
+            await _context.SaveChangesAsync();
+
+            return Ok(new
+            {
+                success = true,
+                message = "Đã ghi nhận. Quản trị viên sẽ kiểm tra và mở khóa giải sớm nhất."
+            });
         }
 
         /// <summary>
@@ -729,6 +762,7 @@ namespace Appwebbongda.Controllers
                              t.ActivationFee,
                              t.IsPaid,
                              t.PaidAt,
+                             t.PaymentClaimedAt,
                              t.Status,
                              t.Format,
                              ownerEmail = u != null ? u.Email : null,
@@ -752,7 +786,10 @@ namespace Appwebbongda.Controllers
             }
 
             var list = await joined
-                .OrderByDescending(x => x.TournamentId)
+                // Giai DA BAO chuyen khoan len dau de Admin kiem tra truoc
+                .OrderByDescending(x => x.PaymentClaimedAt != null)
+                .ThenByDescending(x => x.PaymentClaimedAt)
+                .ThenByDescending(x => x.TournamentId)
                 .Take(200)
                 .ToListAsync();
 
@@ -765,6 +802,9 @@ namespace Appwebbongda.Controllers
                 x.ActivationFee,
                 x.IsPaid,
                 x.PaidAt,
+                x.PaymentClaimedAt,
+                // BTC da bao chuyen khoan -> Admin uu tien kiem tra truoc
+                claimed = x.PaymentClaimedAt != null,
                 x.Status,
                 x.Format,
                 x.ownerEmail,
