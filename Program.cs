@@ -30,14 +30,15 @@ builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseSqlServer(connectionString, sql =>
     {
         // DB MonsterASP (goi mien phi) hay ngu/rot ket noi -> thu lai khi loi.
-        // Giam maxRetryDelay 10s -> 4s: khi ket noi cu bi rot, phuc hoi NHANH hon nhieu
-        // (truoc cho toi 10s/lan lam request cham ~20s; gio toi da ~4s/lan).
+        // maxRetryCount 3, delay 3s: du de vuot qua luc DB "tinh giac",
+        // khong keo dai qua lau khi that su co van de.
         sql.EnableRetryOnFailure(
-            maxRetryCount: 5,
-            maxRetryDelay: TimeSpan.FromSeconds(4),
+            maxRetryCount: 3,
+            maxRetryDelay: TimeSpan.FromSeconds(3),
             errorNumbersToAdd: null);
-        // Cho moi cau lenh toi da 60 giay (thay vi 30s mac dinh) vi DB cham.
-        sql.CommandTimeout(60);
+        // 30 giay/cau lenh. Neu treo thi bao loi trong 30s thay vi 60s -> de sua hon.
+        // Cau lenh binh thuong chi mat vai chuc mili-giay, 30s la qua du.
+        sql.CommandTimeout(30);
     }));
 
 // 2. Services
