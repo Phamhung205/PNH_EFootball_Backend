@@ -13,6 +13,19 @@ var builder = WebApplication.CreateBuilder(args);
 // 1. Connection string
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
     ?? throw new InvalidOperationException("Thiếu ConnectionStrings__DefaultConnection.");
+
+// IN RO moi truong + database dang ket noi (giup phan biet local vs that).
+// Neu chay local ma van thay "db54322.public.databaseasp.net" nghia la KHONG
+// chay o che do Development -> kiem tra profile dang chay trong Visual Studio.
+{
+    var moiTruong = builder.Environment.EnvironmentName;
+    var server = "?";
+    try { server = new Microsoft.Data.SqlClient.SqlConnectionStringBuilder(connectionString).DataSource; } catch { }
+    Console.WriteLine("========================================");
+    Console.WriteLine($"  MOI TRUONG : {moiTruong}");
+    Console.WriteLine($"  DATABASE   : {server}");
+    Console.WriteLine("========================================");
+}
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseSqlServer(connectionString, sql =>
     {
@@ -168,6 +181,23 @@ using (var scope = app.Services.CreateScope())
                   ALTER TABLE dbo.Tournaments ADD PaymentNote NVARCHAR(50) NULL;",
                 @"IF COL_LENGTH('dbo.Tournaments','PaymentClaimedAt') IS NULL
                   ALTER TABLE dbo.Tournaments ADD PaymentClaimedAt DATETIME2 NULL;",
+
+                // ── BANG KHO DOI CA NHAN ──
+                // EnsureCreated khong tao bang moi khi database da ton tai, nen phai
+                // tu tao. Moi user co kho doi rieng (UserId), khong lan sang nhau.
+                @"IF OBJECT_ID('dbo.TeamLibraries', 'U') IS NULL
+                  CREATE TABLE dbo.TeamLibraries (
+                      Id          INT IDENTITY(1,1) PRIMARY KEY,
+                      UserId      INT NOT NULL,
+                      Name        NVARCHAR(200) NOT NULL,
+                      LogoUrl     NVARCHAR(MAX) NULL,
+                      CreatedAt   DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
+                      LastUsedAt  DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()
+                  );",
+                // Chi so giup tim nhanh theo user
+                @"IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_TeamLibraries_UserId')
+                  AND OBJECT_ID('dbo.TeamLibraries', 'U') IS NOT NULL
+                  CREATE INDEX IX_TeamLibraries_UserId ON dbo.TeamLibraries(UserId);",
 
                 // MO KHOA GIAI CU — cac giai tao truoc khi co tinh nang phi deu co
                 // IsPaid = 0. Neu khong xu ly, nguoi dung dang dung binh thuong bong

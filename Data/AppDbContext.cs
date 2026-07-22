@@ -19,6 +19,7 @@ namespace Appwebbongda.Data
         public DbSet<User> Users { get; set; }
         public DbSet<Registration> Registrations { get; set; }
         public DbSet<ChatMessage> ChatMessages { get; set; }
+        public DbSet<TeamLibrary> TeamLibraries { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {

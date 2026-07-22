@@ -185,7 +185,59 @@ namespace Appwebbongda.Controllers
             _context.Teams.Add(team);
             await _context.SaveChangesAsync();
 
+            // Tu dong luu vao KHO DOI CA NHAN de lan sau dung lai
+            await LuuVaoKhoDoiAsync(new[] { (team.Name, team.LogoUrl) });
+
             return Ok(new { success = true, message = "Thêm đội bóng thành công!", data = team });
+        }
+
+        /// <summary>
+        /// Luu doi vao kho ca nhan cua nguoi tao giai hien tai.
+        /// Trung ten -> chi cap nhat logo + thoi gian dung. Loi o day KHONG lam
+        /// hong viec them doi (kho chi la tien ich phu), nen bao boc try/catch.
+        /// </summary>
+        private async Task LuuVaoKhoDoiAsync(IEnumerable<(string Name, string? LogoUrl)> doiList)
+        {
+            try
+            {
+                var uid = GetCurrentUserId();
+                if (uid == null) return;
+
+                var daCo = await _context.TeamLibraries
+                    .Where(t => t.UserId == uid.Value)
+                    .ToDictionaryAsync(t => t.Name.ToLower(), t => t);
+
+                var now = DateTime.UtcNow;
+                foreach (var (name, logo) in doiList)
+                {
+                    var ten = (name ?? "").Trim();
+                    if (ten.Length == 0) continue;
+                    var key = ten.ToLower();
+                    if (daCo.TryGetValue(key, out var cu))
+                    {
+                        if (!string.IsNullOrWhiteSpace(logo)) cu.LogoUrl = logo;
+                        cu.LastUsedAt = now;
+                    }
+                    else
+                    {
+                        var item = new TeamLibrary
+                        {
+                            UserId = uid.Value,
+                            Name = ten,
+                            LogoUrl = logo,
+                            CreatedAt = now,
+                            LastUsedAt = now
+                        };
+                        _context.TeamLibraries.Add(item);
+                        daCo[key] = item;
+                    }
+                }
+                await _context.SaveChangesAsync();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[TeamLibrary] Bo qua luu kho: {ex.Message}");
+            }
         }
 
         // 1 doi trong danh sach nhap hang loat (co the kem logo)
@@ -288,6 +340,9 @@ namespace Appwebbongda.Controllers
 
             _context.Teams.AddRange(toAdd);
             await _context.SaveChangesAsync();
+
+            // Tu dong luu ca loat vao KHO DOI CA NHAN
+            await LuuVaoKhoDoiAsync(toAdd.Select(t => (t.Name, t.LogoUrl)));
 
             return Ok(new
             {
