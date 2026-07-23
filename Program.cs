@@ -132,19 +132,21 @@ using (var scope = app.Services.CreateScope())
         // Chi dam bao ket noi duoc DB (khong goi Migrate de tranh warning lam crash)
         db.Database.CanConnect();
 
-        // ===== CHI KHI CHAY LOCAL (Development) =====
-        // Tu tao database + toan bo bang tu model EF neu chua co.
-        // Nho vay test o may khong can chay SQL tay, va cac cot moi (Plan, PlanExpiry)
-        // duoc tao san. KHONG BAO GIO chay tren Production (DB that).
+        // ===== TAO DATABASE MOI (CHI LOCAL) =====
+        // EnsureCreated tao toan bo bang tu model neu database CHUA co.
+        // Chi lam o local: Production da co database that, khong dung cach nay.
         if (app.Environment.IsDevelopment())
         {
             db.Database.EnsureCreated();
+        }
 
-            // EnsureCreated CHI tao bang khi database CHUA ton tai.
-            // Neu DB local da co tu truoc, cot moi them vao model se KHONG duoc tao
-            // -> loi "Invalid column name". Nen tu them cot thieu tai day.
-            // An toan: co IF NOT EXISTS, chay lai bao nhieu lan cung khong sao.
-            // KHONG chay tren Production (DB that dung file SQL rieng).
+        // ===== DONG BO COT (CHAY CA LOCAL LAN PRODUCTION) =====
+        // Truoc day khoi nay CHI chay o local -> Production thieu cot moi (vd
+        // PaymentClaimedAt) -> loi "Invalid column name" (SQL 207) khi chia bang.
+        // Gio cho chay ca tren Production. AN TOAN vi moi cau deu la
+        // "IF COL_LENGTH ... IS NULL" -> chi them neu chua co, khong pha du lieu,
+        // chay lai bao nhieu lan cung khong sao.
+        {
             var syncColumns = new[]
             {
                 @"IF NOT EXISTS (SELECT 1 FROM sys.columns
@@ -216,7 +218,7 @@ using (var scope = app.Services.CreateScope())
                 catch (Exception ex) { Console.WriteLine($"[Startup] Bo qua dong bo cot: {ex.Message}"); }
             }
 
-            Console.WriteLine("[Startup] Development: database local da du bang va du cot.");
+            Console.WriteLine($"[Startup] Da dong bo cot ({app.Environment.EnvironmentName}).");
         }
 
         // Doc thong tin admin tu BIEN MOI TRUONG (KHONG hard-code mat khau de tranh lo).
