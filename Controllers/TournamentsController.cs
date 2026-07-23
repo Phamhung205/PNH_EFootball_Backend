@@ -198,7 +198,10 @@ namespace Appwebbongda.Controllers
                         x.t.CreatedByUserId,
                         // Ten nguoi tao — hien o trang cong dong
                         CreatedByName = u != null ? u.FullName : null,
-                        CreatedByAvatar = u != null ? u.AvatarUrl : null,
+                        // KHONG tra AvatarUrl o day: anh la chuoi base64 dai,
+                        // 20 giai = ~120KB tai them, trong khi the giai chi hien
+                        // anh o 4x4 pixel. Frontend se hien chu cai dau ten thay the.
+                        CreatedByAvatar = (string?)null,
                         // So doi cua giai (de the giai hien dung so luong)
                         TeamCount = _context.Teams.Count(te => te.TournamentId == x.t.TournamentId)
                     })
