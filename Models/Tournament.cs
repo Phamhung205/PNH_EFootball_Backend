@@ -19,6 +19,18 @@ namespace Appwebbongda.Models
         public int? NumberOfGroups { get; set; }
         public int? TeamsAdvancingPerGroup { get; set; }
 
+        // ── CHON DOI VAO VONG TRONG ──
+        // So doi HANG BA tot nhat duoc lay them.
+        //   null = tu tinh cho du luy thua 2
+        //   4    = giai 24 doi kieu EURO (6 nhat + 6 nhi + 4 hang ba = 16)
+        //   0    = khong lay doi hang ba nao
+        public int? BestThirdPlaceCount { get; set; }
+
+        // Danh sach doi BTC chon TAY, luu dang "12,45,78" (cach nhau dau phay).
+        // Rong/null = dung hoan toan danh sach tu dong.
+        // Co gia tri = danh sach nay THAY THE danh sach tu dong.
+        public string? ManualQualifiedIds { get; set; }
+
         public DateTime StartDate { get; set; }
 
         public string? Description { get; set; } // Thêm dấu ? để cho phép Null

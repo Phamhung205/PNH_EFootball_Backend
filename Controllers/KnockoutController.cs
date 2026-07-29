@@ -123,14 +123,25 @@ namespace Appwebbongda.Controllers
         // Tinh tu bang xep hang cac bang, khong can da tao so do.
         // ===================================================================
         [HttpGet("{tournamentId}/qualified")]
-        public async Task<IActionResult> GetQualified(int tournamentId, [FromQuery] int? perGroup)
+        public async Task<IActionResult> GetQualified(int tournamentId,
+            [FromQuery] int? perGroup, [FromQuery] int? thirdPlace)
         {
             var tournament = await _context.Tournaments.FindAsync(tournamentId);
             if (tournament == null)
                 return NotFound(new { success = false, message = "Khong tim thay giai dau." });
 
             int take = perGroup ?? tournament.TeamsAdvancingPerGroup ?? 2;
-            var ids = await GetTopTeamsPerGroup(tournamentId, take);
+            // So doi hang ba: uu tien tham so URL, sau do den cai dat da luu cua giai
+            int? soHangBa = thirdPlace ?? tournament.BestThirdPlaceCount;
+
+            var ids = await GetTopTeamsPerGroup(
+                tournamentId, take, soHangBa, tournament.ManualQualifiedIds);
+
+            // Lay chi tiet bang xep hang de danh dau ai la doi hang ba
+            var (theoBang, hangBaXepHang) = await TinhBangXepHangAsync(tournamentId);
+            var idsHangBa = ids.Intersect(hangBaXepHang.Select(h => h.TeamId)).ToHashSet();
+
+            bool dangChonTay = !string.IsNullOrWhiteSpace(tournament.ManualQualifiedIds);
 
             // Lay thong tin doi theo dung THU TU da xep hang
             var teams = await _context.Teams
@@ -146,7 +157,8 @@ namespace Appwebbongda.Controllers
                     name = t.Name,
                     logo = t.LogoUrl,
                     groupName = t.GroupName,
-                    seed = i + 1                 // thu tu hat giong
+                    seed = i + 1,                // thu tu hat giong
+                    isThirdPlace = idsHangBa.Contains(t.TeamId)
                 })
                 .ToList();
 
@@ -169,9 +181,107 @@ namespace Appwebbongda.Controllers
                     total = ordered.Count,
                     perGroup = take,
                     hasBracket = daTaoSoDo,
-                    enough = ordered.Count >= 2
+                    enough = ordered.Count >= 2,
+
+                    // ── SO DOI HANG BA ──
+                    thirdPlaceCount = soHangBa,          // cai dat hien tai (null = tu tinh)
+                    thirdPlaceTaken = idsHangBa.Count,   // thuc te lay bao nhieu
+                    isManual = dangChonTay,              // dang dung danh sach chon tay?
+
+                    // Kiem tra so doi co hop le de tao so do khong
+                    isPowerOfTwo = ordered.Count >= 2 && (ordered.Count & (ordered.Count - 1)) == 0,
+                    nextPowerOfTwo = NextPowerOfTwo(ordered.Count),
+
+                    // Bang xep hang DAY DU cac doi hang ba (de hien bang rieng)
+                    thirdPlaceRanking = hangBaXepHang.Select((h, idx) => new
+                    {
+                        rank = idx + 1,
+                        teamId = h.TeamId,
+                        groupName = h.GroupName,
+                        played = h.Played,
+                        won = h.Won,
+                        drawn = h.Drawn,
+                        lost = h.Lost,
+                        goalsFor = h.GoalsFor,
+                        goalsAgainst = h.GoalsAgainst,
+                        goalDiff = h.GoalDiff,
+                        points = h.Points,
+                        qualified = idsHangBa.Contains(h.TeamId)
+                    }).ToList(),
+
+                    // Toan bo bang xep hang tung bang (de frontend hien neu can)
+                    groupStandings = theoBang.Select(b => new
+                    {
+                        groupName = b.FirstOrDefault()?.GroupName ?? "",
+                        teams = b.Select(x => new
+                        {
+                            rank = x.RankInGroup,
+                            teamId = x.TeamId,
+                            played = x.Played,
+                            won = x.Won,
+                            drawn = x.Drawn,
+                            lost = x.Lost,
+                            goalsFor = x.GoalsFor,
+                            goalsAgainst = x.GoalsAgainst,
+                            goalDiff = x.GoalDiff,
+                            points = x.Points
+                        }).ToList()
+                    }).ToList()
                 }
             });
+        }
+
+        // ===================================================================
+        // 1b. PUT /api/knockout/{tournamentId}/qualify-config
+        //     Luu cai dat chon doi vao vong trong.
+        //     - thirdPlaceCount: so doi hang ba lay them (null = tu tinh)
+        //     - manualTeamIds  : danh sach chon tay (rong = dung tu dong)
+        // ===================================================================
+        [HttpPut("{tournamentId}/qualify-config")]
+        [Authorize(Roles = "Admin,BTC")]
+        public async Task<IActionResult> SaveQualifyConfig(int tournamentId, [FromBody] QualifyConfigDto dto)
+        {
+            var notPaid = await BlockIfNotActivatedAsync(tournamentId);
+            if (notPaid != null) return notPaid;
+
+            var t = await _context.Tournaments.FindAsync(tournamentId);
+            if (t == null)
+                return NotFound(new { success = false, message = "Khong tim thay giai dau." });
+
+            // So doi hang ba (am -> coi nhu khong dat)
+            t.BestThirdPlaceCount = (dto.ThirdPlaceCount.HasValue && dto.ThirdPlaceCount.Value >= 0)
+                ? dto.ThirdPlaceCount
+                : null;
+
+            // Danh sach chon tay: loc so hop le, bo trung
+            if (dto.ManualTeamIds != null && dto.ManualTeamIds.Count > 0)
+            {
+                var ids = dto.ManualTeamIds.Where(x => x > 0).Distinct().ToList();
+                t.ManualQualifiedIds = ids.Count > 0 ? string.Join(",", ids) : null;
+            }
+            else
+            {
+                t.ManualQualifiedIds = null;   // ve lai che do tu dong
+            }
+
+            await _context.SaveChangesAsync();
+            return Ok(new
+            {
+                success = true,
+                message = "Da luu cai dat chon doi.",
+                data = new
+                {
+                    thirdPlaceCount = t.BestThirdPlaceCount,
+                    manualTeamIds = t.ManualQualifiedIds,
+                    isManual = !string.IsNullOrWhiteSpace(t.ManualQualifiedIds)
+                }
+            });
+        }
+
+        public class QualifyConfigDto
+        {
+            public int? ThirdPlaceCount { get; set; }
+            public List<int>? ManualTeamIds { get; set; }
         }
 
         // ===================================================================
@@ -212,11 +322,35 @@ namespace Appwebbongda.Controllers
                 int perGroup = (tournament.TeamsAdvancingPerGroup.HasValue && tournament.TeamsAdvancingPerGroup.Value > 0)
                     ? tournament.TeamsAdvancingPerGroup.Value
                     : 2;
-                advancingTeamIds = await GetTopTeamsPerGroup(tournamentId, perGroup);
+                advancingTeamIds = await GetTopTeamsPerGroup(
+                    tournamentId, perGroup,
+                    tournament.BestThirdPlaceCount,
+                    tournament.ManualQualifiedIds);
             }
 
             if (advancingTeamIds.Count < 2)
                 return BadRequest(new { success = false, message = "Chua du doi de tao so do (can it nhat 2 doi co ket qua vong bang)." });
+
+            // ── BAT BUOC SO DOI PHAI LA LUY THUA 2 ──
+            // So do loai truc tiep chi ghep duoc khi so doi la 2, 4, 8, 16, 32...
+            // Vd 15 doi -> co 1 doi khong co doi thu. Chan lai va bao ro con thieu may doi.
+            int soDoi = advancingTeamIds.Count;
+            bool laLuyThua2 = (soDoi & (soDoi - 1)) == 0;
+            if (!laLuyThua2)
+            {
+                int can = NextPowerOfTwo(soDoi);
+                return BadRequest(new
+                {
+                    success = false,
+                    code = "NOT_POWER_OF_TWO",
+                    current = soDoi,
+                    required = can,
+                    missing = can - soDoi,
+                    message = $"Dang co {soDoi} doi — khong tao duoc so do. "
+                            + $"Can dung {can} doi (thieu {can - soDoi} doi). "
+                            + "Hay tang so doi hang ba hoac chon them doi bang tay."
+                });
+            }
 
             // Tao cap dau vong 1 knockout: doi 1 gap doi cuoi, doi 2 gap doi ke cuoi... (kieu seed)
             // Vi don gian: ghep lien tiep 1-2, 3-4,... (co the cai tien sau)
@@ -254,96 +388,228 @@ namespace Appwebbongda.Controllers
         // - Neu can du so doi la luy thua 2 (vd 32), lay them cac doi HANG 3 tot nhat.
         // topN = so doi lay moi bang cho vi tri chinh (thuong 2).
         // ===================================================================
-        private async Task<List<int>> GetTopTeamsPerGroup(int tournamentId, int topN)
+        /// <summary>
+        /// So lieu xep hang cua MOT doi trong bang.
+        /// </summary>
+        private class TeamStanding
         {
-            // Lay tat ca doi cua giai (co GroupName)
+            public int TeamId { get; set; }
+            public string GroupName { get; set; } = "";
+            public int Played { get; set; }
+            public int Won { get; set; }
+            public int Drawn { get; set; }
+            public int Lost { get; set; }
+            public int GoalsFor { get; set; }
+            public int GoalsAgainst { get; set; }
+            public int GoalDiff => GoalsFor - GoalsAgainst;
+            public int Points => Won * 3 + Drawn;
+            public int RankInGroup { get; set; }   // 1 = nhat bang
+        }
+
+        /// <summary>
+        /// Xep hang MOT bang theo dung thu tu uu tien cua UEFA.
+        ///
+        /// Khi cac doi BANG DIEM, thu tu xet la:
+        ///   1. Diem doi dau giua rieng cac doi bang nhau
+        ///   2. Hieu so doi dau
+        ///   3. Ban thang doi dau
+        ///   4. Hieu so TOAN BANG
+        ///   5. Ban thang TOAN BANG
+        ///   6. So tran thang
+        ///   7. TeamId (thay cho boc tham — de ket qua on dinh, khong doi moi lan goi)
+        ///
+        /// Khac cach cu: cach cu nhay thang sang hieu so toan bang, BO QUA doi dau
+        /// -> sai thu tu khi hai doi bang diem ma doi thua doi dau lai co hieu so tot hon.
+        /// </summary>
+        private List<TeamStanding> XepHangBang(List<Team> teamsInGroup, List<Match> matches)
+        {
+            // Tinh so lieu toan bang cho tung doi
+            var bang = new List<TeamStanding>();
+            foreach (var team in teamsInGroup)
+            {
+                var st = new TeamStanding { TeamId = team.TeamId, GroupName = team.GroupName ?? "" };
+
+                foreach (var m in matches.Where(x => x.HomeTeamId == team.TeamId))
+                {
+                    st.Played++;
+                    st.GoalsFor += m.HomeScore!.Value;
+                    st.GoalsAgainst += m.AwayScore!.Value;
+                    if (m.HomeScore > m.AwayScore) st.Won++;
+                    else if (m.HomeScore == m.AwayScore) st.Drawn++;
+                    else st.Lost++;
+                }
+                foreach (var m in matches.Where(x => x.AwayTeamId == team.TeamId))
+                {
+                    st.Played++;
+                    st.GoalsFor += m.AwayScore!.Value;
+                    st.GoalsAgainst += m.HomeScore!.Value;
+                    if (m.AwayScore > m.HomeScore) st.Won++;
+                    else if (m.AwayScore == m.HomeScore) st.Drawn++;
+                    else st.Lost++;
+                }
+                bang.Add(st);
+            }
+
+            // Gom cac doi BANG DIEM thanh nhom, trong moi nhom xet doi dau truoc
+            var ketQua = new List<TeamStanding>();
+            foreach (var nhom in bang.GroupBy(x => x.Points).OrderByDescending(g => g.Key))
+            {
+                var ds = nhom.ToList();
+                if (ds.Count == 1) ketQua.Add(ds[0]);
+                else ketQua.AddRange(XetDoiDau(ds, matches));
+            }
+
+            for (int k = 0; k < ketQua.Count; k++)
+                ketQua[k].RankInGroup = k + 1;
+
+            return ketQua;
+        }
+
+        /// <summary>
+        /// Xet doi dau giua cac doi BANG DIEM.
+        /// Chi tinh nhung tran ma CA HAI doi deu nam trong nhom dang xet.
+        /// </summary>
+        private List<TeamStanding> XetDoiDau(List<TeamStanding> nhom, List<Match> allMatches)
+        {
+            var ids = nhom.Select(x => x.TeamId).ToHashSet();
+
+            var tranNoiBo = allMatches
+                .Where(m => ids.Contains(m.HomeTeamId) && ids.Contains(m.AwayTeamId))
+                .ToList();
+
+            // Tinh diem / hieu so / ban thang RIENG trong nhom
+            var chiSo = new Dictionary<int, (int diem, int hieuSo, int banThang)>();
+            foreach (var id in ids)
+            {
+                int diem = 0, bt = 0, bb = 0;
+                foreach (var m in tranNoiBo.Where(x => x.HomeTeamId == id))
+                {
+                    bt += m.HomeScore!.Value; bb += m.AwayScore!.Value;
+                    if (m.HomeScore > m.AwayScore) diem += 3;
+                    else if (m.HomeScore == m.AwayScore) diem += 1;
+                }
+                foreach (var m in tranNoiBo.Where(x => x.AwayTeamId == id))
+                {
+                    bt += m.AwayScore!.Value; bb += m.HomeScore!.Value;
+                    if (m.AwayScore > m.HomeScore) diem += 3;
+                    else if (m.AwayScore == m.HomeScore) diem += 1;
+                }
+                chiSo[id] = (diem, bt - bb, bt);
+            }
+
+            return nhom
+                .OrderByDescending(x => chiSo[x.TeamId].diem)        // 1. diem doi dau
+                .ThenByDescending(x => chiSo[x.TeamId].hieuSo)       // 2. hieu so doi dau
+                .ThenByDescending(x => chiSo[x.TeamId].banThang)     // 3. ban thang doi dau
+                .ThenByDescending(x => x.GoalDiff)                   // 4. hieu so toan bang
+                .ThenByDescending(x => x.GoalsFor)                   // 5. ban thang toan bang
+                .ThenByDescending(x => x.Won)                        // 6. so tran thang
+                .ThenBy(x => x.TeamId)                               // 7. thay boc tham
+                .ToList();
+        }
+
+        /// <summary>
+        /// Xep hang cac doi HANG BA cua moi bang.
+        /// Cac doi nay KHONG da voi nhau nen khong xet doi dau, chi xet:
+        ///   diem -> hieu so -> ban thang -> so tran thang -> TeamId
+        /// </summary>
+        private List<TeamStanding> XepHangDoiHangBa(List<TeamStanding> cacDoi)
+            => cacDoi
+                .OrderByDescending(x => x.Points)
+                .ThenByDescending(x => x.GoalDiff)
+                .ThenByDescending(x => x.GoalsFor)
+                .ThenByDescending(x => x.Won)
+                .ThenBy(x => x.TeamId)
+                .ToList();
+
+        /// <summary>
+        /// Tinh bang xep hang tat ca cac bang + danh sach doi hang ba.
+        /// Dung chung cho ca GetQualified va Generate de hai noi luon khop nhau.
+        /// </summary>
+        private async Task<(List<List<TeamStanding>> theoBang, List<TeamStanding> hangBa)>
+            TinhBangXepHangAsync(int tournamentId)
+        {
             var teams = await _context.Teams
                 .Where(t => t.TournamentId == tournamentId)
                 .ToListAsync();
 
-            // Lay cac tran vong bang da xong (Round < KNOCKOUT_BASE, da co ti so)
             var matches = await _context.Matches
                 .Where(m => m.TournamentId == tournamentId
                             && m.Round < KNOCKOUT_BASE
                             && m.HomeScore != null && m.AwayScore != null)
                 .ToListAsync();
 
-            // Nhom doi theo bang
-            var byGroup = teams
+            var theoBang = teams
                 .Where(t => !string.IsNullOrEmpty(t.GroupName))
-                .GroupBy(t => t.GroupName)
+                .GroupBy(t => t.GroupName!)
                 .OrderBy(g => g.Key)
+                .Select(g => XepHangBang(g.ToList(), matches))
                 .ToList();
 
-            int numGroups = byGroup.Count;
+            // Doi xep thu 3 cua moi bang (bang phai co it nhat 3 doi)
+            var hangBa = theoBang.Where(b => b.Count >= 3).Select(b => b[2]).ToList();
 
-            var result = new List<int>();
-            // Danh sach cac doi xep thu (topN+1) moi bang (vd hang 3) de xet "tot nhat"
-            var rankNextTeams = new List<(int teamId, int points, int gd, int gf)>();
+            return (theoBang, XepHangDoiHangBa(hangBa));
+        }
 
-            foreach (var group in byGroup)
+        /// <summary>
+        /// Lay danh sach doi vao vong trong.
+        ///
+        /// Uu tien 1: neu BTC da chon TAY (ManualQualifiedIds) -> dung danh sach do.
+        /// Uu tien 2: tu dong — lay topN doi dau moi bang + so doi hang ba chi dinh.
+        ///
+        /// soDoiHangBa:
+        ///   null  -> tu tinh cho du luy thua 2
+        ///   >= 0  -> lay dung so do (0 = khong lay hang ba nao)
+        /// </summary>
+        private async Task<List<int>> GetTopTeamsPerGroup(
+            int tournamentId, int topN, int? soDoiHangBa = null, string? manualIds = null)
+        {
+            // ── Uu tien danh sach chon tay ──
+            if (!string.IsNullOrWhiteSpace(manualIds))
             {
-                // Tinh diem cho tung doi trong bang
-                var standings = new List<(int teamId, int points, int gd, int gf)>();
-
-                foreach (var team in group)
-                {
-                    int won = 0, drawn = 0, gf = 0, ga = 0;
-
-                    var homeGames = matches.Where(m => m.HomeTeamId == team.TeamId);
-                    foreach (var m in homeGames)
-                    {
-                        gf += m.HomeScore!.Value; ga += m.AwayScore!.Value;
-                        if (m.HomeScore > m.AwayScore) won++;
-                        else if (m.HomeScore == m.AwayScore) drawn++;
-                    }
-
-                    var awayGames = matches.Where(m => m.AwayTeamId == team.TeamId);
-                    foreach (var m in awayGames)
-                    {
-                        gf += m.AwayScore!.Value; ga += m.HomeScore!.Value;
-                        if (m.AwayScore > m.HomeScore) won++;
-                        else if (m.AwayScore == m.HomeScore) drawn++;
-                    }
-
-                    int points = won * 3 + drawn;
-                    standings.Add((team.TeamId, points, gf - ga, gf));
-                }
-
-                // Sap xep bang: diem -> hieu so -> ban thang
-                var ordered = standings
-                    .OrderByDescending(s => s.points)
-                    .ThenByDescending(s => s.gd)
-                    .ThenByDescending(s => s.gf)
+                var chonTay = manualIds
+                    .Split(',', StringSplitOptions.RemoveEmptyEntries)
+                    .Select(x => int.TryParse(x.Trim(), out var v) ? v : 0)
+                    .Where(v => v > 0)
+                    .Distinct()
                     .ToList();
-
-                // Lay topN doi dau bang (nhat, nhi...)
-                result.AddRange(ordered.Take(topN).Select(s => s.teamId));
-
-                // Doi xep thu (topN+1) - vd hang 3 - de xet lay them sau
-                if (ordered.Count > topN)
-                    rankNextTeams.Add(ordered[topN]);
+                if (chonTay.Count > 0) return chonTay;
             }
 
-            // Tinh so doi can co de so do knockout la luy thua 2 (2,4,8,16,32,64...)
-            int baseCount = result.Count;                 // vd 12 bang x 2 = 24
-            int target = LargestPowerOfTwoLE(baseCount + rankNextTeams.Count);
-            // target = luy thua 2 lon nhat <= (24 + 12) = 32
+            var (theoBang, hangBa) = await TinhBangXepHangAsync(tournamentId);
 
-            int extraNeeded = target - baseCount;         // vd 32 - 24 = 8 doi hang 3
-            if (extraNeeded > 0 && rankNextTeams.Count > 0)
+            // Lay topN doi dau moi bang
+            var result = new List<int>();
+            foreach (var bang in theoBang)
+                result.AddRange(bang.Take(topN).Select(x => x.TeamId));
+
+            // So doi hang ba lay them
+            int extraNeeded;
+            if (soDoiHangBa.HasValue && soDoiHangBa.Value >= 0)
             {
-                // Lay 'extraNeeded' doi hang 3 TOT NHAT (theo diem -> hieu so -> ban thang)
-                var bestThirds = rankNextTeams
-                    .OrderByDescending(s => s.points)
-                    .ThenByDescending(s => s.gd)
-                    .ThenByDescending(s => s.gf)
-                    .Take(extraNeeded)
-                    .Select(s => s.teamId);
-                result.AddRange(bestThirds);
+                extraNeeded = Math.Min(soDoiHangBa.Value, hangBa.Count);
             }
+            else
+            {
+                // Tu tinh: bu cho du luy thua 2
+                int target = LargestPowerOfTwoLE(result.Count + hangBa.Count);
+                extraNeeded = Math.Max(0, target - result.Count);
+            }
+
+            if (extraNeeded > 0)
+                result.AddRange(hangBa.Take(extraNeeded).Select(x => x.TeamId));
 
             return result;
+        }
+
+        /// <summary>Luy thua 2 nho nhat >= n (vd 15 -> 16, 16 -> 16, 17 -> 32).</summary>
+        private static int NextPowerOfTwo(int n)
+        {
+            if (n <= 2) return 2;
+            int p = 2;
+            while (p < n) p *= 2;
+            return p;
         }
 
         // Tim luy thua 2 lon nhat <= n (vd 24 -> 16, 32 -> 32, 36 -> 32)

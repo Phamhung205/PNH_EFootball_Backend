@@ -185,6 +185,12 @@ using (var scope = app.Services.CreateScope())
                 @"IF COL_LENGTH('dbo.Tournaments','PaymentClaimedAt') IS NULL
                   ALTER TABLE dbo.Tournaments ADD PaymentClaimedAt DATETIME2 NULL;",
 
+                // ── CHON DOI VAO VONG TRONG ──
+                @"IF COL_LENGTH('dbo.Tournaments','BestThirdPlaceCount') IS NULL
+                  ALTER TABLE dbo.Tournaments ADD BestThirdPlaceCount INT NULL;",
+                @"IF COL_LENGTH('dbo.Tournaments','ManualQualifiedIds') IS NULL
+                  ALTER TABLE dbo.Tournaments ADD ManualQualifiedIds NVARCHAR(MAX) NULL;",
+
                 // ── BANG KHO DOI CA NHAN ──
                 // EnsureCreated khong tao bang moi khi database da ton tai, nen phai
                 // tu tao. Moi user co kho doi rieng (UserId), khong lan sang nhau.
