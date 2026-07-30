@@ -133,6 +133,29 @@ namespace Appwebbongda.Controllers
             // Kiem tra giai co CHIA BANG khong (co it nhat 1 doi co GroupName)
             bool hasGroups = teams.Any(t => !string.IsNullOrEmpty(t.GroupName));
 
+            // Ghi log de chan doan: bao nhieu doi, bao nhieu doi da co bang
+            int soDoiCoBang = teams.Count(t => !string.IsNullOrEmpty(t.GroupName));
+            Console.WriteLine($"[GenerateSchedule] Giai #{tournamentId}: {teams.Count} doi, "
+                            + $"{soDoiCoBang} doi da chia bang, hasGroups={hasGroups}");
+
+            // ── CANH BAO GIAI THE THUC CHIA BANG NHUNG CHUA CHIA ──
+            // Neu giai la GroupStage_Knockout ma KHONG doi nao co bang -> chan lai.
+            // Neu khong chan, se tao vong tron TOAN BO (vd 48 doi = 1128 tran) — sai.
+            bool laTheThucChiaBang =
+                (tournament.Format ?? "").Contains("Group", StringComparison.OrdinalIgnoreCase);
+
+            if (laTheThucChiaBang && !hasGroups)
+            {
+                return BadRequest(new
+                {
+                    success = false,
+                    code = "GROUPS_NOT_ASSIGNED",
+                    message = "Giải này thi đấu theo thể thức chia bảng, nhưng chưa có đội nào "
+                            + "được xếp vào bảng. Hãy sang tab 'Chia Bảng', chia đội và bấm LƯU, "
+                            + "rồi mới tạo lịch."
+                });
+            }
+
             if (hasGroups)
             {
                 // ===== GIAI CHIA BANG: moi bang da vong tron RIENG =====
