@@ -47,6 +47,28 @@ namespace Appwebbongda.Controllers
             _config = config;
         }
 
+        // ── ENDPOINT CHAN DOAN TAM THOI ──
+        // Goi thu: GET /api/Tournaments/debug-payment-config
+        // Cho biet CHINH XAC Northflank dang doc duoc gi tu cau hinh Payment,
+        // khong can doan qua log. XOA endpoint nay sau khi tim ra nguyen nhan,
+        // vi no khong yeu cau dang nhap (chi de chan doan nhanh 1 lan).
+        [HttpGet("debug-payment-config")]
+        public IActionResult DebugPaymentConfig()
+        {
+            string An(string? s) => string.IsNullOrEmpty(s) ? "(RONG)" : $"co gia tri, dai {s.Length} ky tu, 3 so cuoi: ...{s[^Math.Min(3, s.Length)..]}";
+            return Ok(new
+            {
+                moiTruong = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") ?? "(khong xac dinh)",
+                bankCode = _config["Payment:BankCode"] ?? "(RONG)",
+                bankName = An(_config["Payment:BankName"]),
+                accountNumber = An(_config["Payment:AccountNumber"]),
+                accountName = An(_config["Payment:AccountName"]),
+                zaloPhone = An(_config["Payment:ZaloPhone"]),
+                // Neu bien nay KHAC voi appsettings.json ban co, tuc la Northflank
+                // dang doc tu 1 nguon cau hinh khac (bien moi truong, hoac file cu).
+            });
+        }
+
         /// <summary>
         /// Kiem tra han muc so giai cua goi hien tai.
         /// Tra ve null neu duoc phep tao; nguoc lai tra ve thong bao loi.
