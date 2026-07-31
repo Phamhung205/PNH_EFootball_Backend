@@ -653,7 +653,14 @@ namespace Appwebbongda.Controllers
             var acc = _config["Payment:AccountNumber"];
             var name = _config["Payment:AccountName"] ?? "";
             if (string.IsNullOrWhiteSpace(bank) || string.IsNullOrWhiteSpace(acc))
+            {
+                // Ghi log RO RANG de biet ngay nguyen nhan khi QR khong hien —
+                // truoc day loi nay am tham, phai doan mo hinh moi tim ra.
+                Console.WriteLine("[BuildVietQrUrl] THIEU CAU HINH: Payment:BankCode="
+                    + $"'{bank}', Payment:AccountNumber='{acc}'. Kiem tra appsettings.json "
+                    + "(hoac bien moi truong tren Northflank) co muc 'Payment' day du khong.");
                 return "";
+            }
             return $"https://img.vietqr.io/image/{bank}-{acc}-compact2.png"
                  + $"?amount={amount}&addInfo={Uri.EscapeDataString(note)}"
                  + $"&accountName={Uri.EscapeDataString(name)}";
