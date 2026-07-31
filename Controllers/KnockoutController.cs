@@ -144,8 +144,10 @@ namespace Appwebbongda.Controllers
             bool dangChonTay = !string.IsNullOrWhiteSpace(tournament.ManualQualifiedIds);
 
             // Lay thong tin doi theo dung THU TU da xep hang
+            // (lay TAT CA doi cua giai, khong chi doi da vao vong trong, de
+            //  groupStandings + o chon doi thu cong co du ten moi doi)
             var teams = await _context.Teams
-                .Where(t => ids.Contains(t.TeamId))
+                .Where(t => t.TournamentId == tournamentId)
                 .ToListAsync();
 
             var ordered = ids
@@ -217,6 +219,9 @@ namespace Appwebbongda.Controllers
                         {
                             rank = x.RankInGroup,
                             teamId = x.TeamId,
+                            // Them ten + logo de o "chon doi thu cong" hien duoc
+                            name = teams.FirstOrDefault(t => t.TeamId == x.TeamId)?.Name ?? $"#{x.TeamId}",
+                            logo = teams.FirstOrDefault(t => t.TeamId == x.TeamId)?.LogoUrl,
                             played = x.Played,
                             won = x.Won,
                             drawn = x.Drawn,
