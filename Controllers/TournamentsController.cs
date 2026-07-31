@@ -47,28 +47,6 @@ namespace Appwebbongda.Controllers
             _config = config;
         }
 
-        // ── ENDPOINT CHAN DOAN TAM THOI ──
-        // Goi thu: GET /api/Tournaments/debug-payment-config
-        // Cho biet CHINH XAC Northflank dang doc duoc gi tu cau hinh Payment,
-        // khong can doan qua log. XOA endpoint nay sau khi tim ra nguyen nhan,
-        // vi no khong yeu cau dang nhap (chi de chan doan nhanh 1 lan).
-        [HttpGet("debug-payment-config")]
-        public IActionResult DebugPaymentConfig()
-        {
-            string An(string? s) => string.IsNullOrEmpty(s) ? "(RONG)" : $"co gia tri, dai {s.Length} ky tu, 3 so cuoi: ...{s[^Math.Min(3, s.Length)..]}";
-            return Ok(new
-            {
-                moiTruong = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") ?? "(khong xac dinh)",
-                bankCode = _config["Payment:BankCode"] ?? "(RONG)",
-                bankName = An(_config["Payment:BankName"]),
-                accountNumber = An(_config["Payment:AccountNumber"]),
-                accountName = An(_config["Payment:AccountName"]),
-                zaloPhone = An(_config["Payment:ZaloPhone"]),
-                // Neu bien nay KHAC voi appsettings.json ban co, tuc la Northflank
-                // dang doc tu 1 nguon cau hinh khac (bien moi truong, hoac file cu).
-            });
-        }
-
         /// <summary>
         /// Kiem tra han muc so giai cua goi hien tai.
         /// Tra ve null neu duoc phep tao; nguoc lai tra ve thong bao loi.
@@ -651,16 +629,21 @@ namespace Appwebbongda.Controllers
                     claimed = t.PaymentClaimedAt != null,
                     claimedAt = t.PaymentClaimedAt,
                     paymentNote = maDoiSoat,
-                    // Thong tin chuyen khoan — doc tu cau hinh, khong hard-code
-                    bank = _config["Payment:BankCode"] ?? "",
-                    bankName = _config["Payment:BankName"] ?? "",
-                    accountNumber = _config["Payment:AccountNumber"] ?? "",
-                    accountName = _config["Payment:AccountName"] ?? "",
+                    // ── THONG TIN CHUYEN KHOAN — DAT CUNG TRUC TIEP TRONG CODE ──
+                    // Truoc day doc tu _config["Payment:..."] (appsettings.json), nhung
+                    // tren Northflank cac gia tri nay tra ve RONG du appsettings.json
+                    // co du lieu (co the do bien moi truong ghi de, hoac ban deploy
+                    // khac ban dang xem). Dat thang o day loai bo hoan toan kha nang
+                    // do, doi gia bang PHAI sua truc tiep 6 dong hang so ben duoi.
+                    bank = THONG_TIN_NGAN_HANG.BankCode,
+                    bankName = THONG_TIN_NGAN_HANG.BankName,
+                    accountNumber = THONG_TIN_NGAN_HANG.AccountNumber,
+                    accountName = THONG_TIN_NGAN_HANG.AccountName,
                     // Chua co doi -> KHONG sinh QR (so tien = 0, quet vao se sai)
                     qrUrl = coDoi ? BuildVietQrUrl(phi, maDoiSoat) : "",
                     // Lien he Zalo de duyet nhanh
-                    zaloPhone = _config["Payment:ZaloPhone"] ?? "",
-                    zaloName = _config["Payment:ZaloName"] ?? "",
+                    zaloPhone = THONG_TIN_NGAN_HANG.ZaloPhone,
+                    zaloName = THONG_TIN_NGAN_HANG.ZaloName,
                 }
             });
         }
@@ -669,20 +652,26 @@ namespace Appwebbongda.Controllers
         /// Tao link anh QR VietQR (mien phi, khong can dang ky).
         /// Nguoi dung quet la app ngan hang tu dien so tien + noi dung -> giam sai sot.
         /// </summary>
+        // ── THONG TIN NGAN HANG CO DINH ──
+        // Dat thang trong code, KHONG doc tu appsettings.json nua. Muon doi
+        // ngan hang / so tai khoan thi sua truc tiep 6 dong duoi day roi
+        // deploy lai backend — khong can dung bien moi truong hay file config.
+        private static class THONG_TIN_NGAN_HANG
+        {
+            public const string BankCode = "970415";           // VietinBank
+            public const string BankName = "Vietinbank";
+            public const string AccountNumber = "107878713006";
+            public const string AccountName = "PHAM NGOC HUNG";
+            public const string ZaloPhone = "0355382937";
+            public const string ZaloName = "Pham Ngoc Hung";
+        }
+
         private string BuildVietQrUrl(int amount, string note)
         {
-            var bank = _config["Payment:BankCode"];
-            var acc = _config["Payment:AccountNumber"];
-            var name = _config["Payment:AccountName"] ?? "";
-            if (string.IsNullOrWhiteSpace(bank) || string.IsNullOrWhiteSpace(acc))
-            {
-                // Ghi log RO RANG de biet ngay nguyen nhan khi QR khong hien —
-                // truoc day loi nay am tham, phai doan mo hinh moi tim ra.
-                Console.WriteLine("[BuildVietQrUrl] THIEU CAU HINH: Payment:BankCode="
-                    + $"'{bank}', Payment:AccountNumber='{acc}'. Kiem tra appsettings.json "
-                    + "(hoac bien moi truong tren Northflank) co muc 'Payment' day du khong.");
-                return "";
-            }
+            // Dung hang so co dinh — luon co gia tri, khong bao gio rong nua
+            var bank = THONG_TIN_NGAN_HANG.BankCode;
+            var acc = THONG_TIN_NGAN_HANG.AccountNumber;
+            var name = THONG_TIN_NGAN_HANG.AccountName;
             return $"https://img.vietqr.io/image/{bank}-{acc}-compact2.png"
                  + $"?amount={amount}&addInfo={Uri.EscapeDataString(note)}"
                  + $"&accountName={Uri.EscapeDataString(name)}";
