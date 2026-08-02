@@ -74,6 +74,11 @@ namespace Appwebbongda.Models
         // danh sach. Khac PaidAt: day la BTC TU BAO, chua duoc xac nhan.
         public DateTime? PaymentClaimedAt { get; set; }
 
+        // Admin bam "Tu choi" luc nao — co gia tri = dang hien canh bao cho BTC.
+        // Duoc XOA (dat lai null) khi BTC bam "Toi da chuyen khoan" lan nua,
+        // hoac khi Admin duyet thanh cong — vi luc do khong con can canh bao.
+        public DateTime? PaymentRejectedAt { get; set; }
+
         // ===== THU PHI GIAI DAU =====
         public int EntryFee { get; set; } = 0;          // Phi 1 nguoi (VD 20000)
         public int AdminFee { get; set; } = 0;          // Phi cat cho admin (VD 15000)

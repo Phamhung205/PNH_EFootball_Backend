@@ -20,6 +20,7 @@ namespace Appwebbongda.Controllers
         private readonly AppDbContext _context;
         private readonly ISubscriptionService _subscription;
         private readonly IConfiguration _config;
+        private readonly IEmailSender _emailSender;
 
         // ── PHI KICH HOAT GIAI ──
         // So giai MIEN PHI tron doi cho moi tai khoan.
@@ -40,11 +41,13 @@ namespace Appwebbongda.Controllers
         public static int TinhPhiKichHoat(int maxTeams)
             => maxTeams >= LARGE_THRESHOLD ? FEE_LARGE : FEE_SMALL;
 
-        public TournamentsController(AppDbContext context, ISubscriptionService subscription, IConfiguration config)
+        public TournamentsController(AppDbContext context, ISubscriptionService subscription,
+            IConfiguration config, IEmailSender emailSender)
         {
             _context = context;
             _subscription = subscription;
             _config = config;
+            _emailSender = emailSender;
         }
 
         /// <summary>
@@ -628,6 +631,11 @@ namespace Appwebbongda.Controllers
                     // BTC da bam "Toi da chuyen khoan" chua (de an/hien nut)
                     claimed = t.PaymentClaimedAt != null,
                     claimedAt = t.PaymentClaimedAt,
+                    // Admin vua tu choi -> co gia tri = hien khoi canh bao do nhat
+                    // tren ActivationGate. Tu dong "het" khi BTC bao CK lai
+                    // (RejectPayment da xoa cot nay).
+                    rejected = t.PaymentRejectedAt != null,
+                    rejectedAt = t.PaymentRejectedAt,
                     paymentNote = maDoiSoat,
                     // ── THONG TIN CHUYEN KHOAN — DAT CUNG TRUC TIEP TRONG CODE ──
                     // Truoc day doc tu _config["Payment:..."] (appsettings.json), nhung
@@ -648,10 +656,6 @@ namespace Appwebbongda.Controllers
             });
         }
 
-        /// <summary>
-        /// Tao link anh QR VietQR (mien phi, khong can dang ky).
-        /// Nguoi dung quet la app ngan hang tu dien so tien + noi dung -> giam sai sot.
-        /// </summary>
         // ── THONG TIN NGAN HANG CO DINH ──
         // Dat thang trong code, KHONG doc tu appsettings.json nua. Muon doi
         // ngan hang / so tai khoan thi sua truc tiep 6 dong duoi day roi
@@ -666,6 +670,10 @@ namespace Appwebbongda.Controllers
             public const string ZaloName = "Pham Ngoc Hung";
         }
 
+        /// <summary>
+        /// Tao link anh QR VietQR (mien phi, khong can dang ky).
+        /// Nguoi dung quet la app ngan hang tu dien so tien + noi dung -> giam sai sot.
+        /// </summary>
         private string BuildVietQrUrl(int amount, string note)
         {
             // Dung hang so co dinh — luon co gia tri, khong bao gio rong nua
@@ -698,6 +706,8 @@ namespace Appwebbongda.Controllers
                 return Ok(new { success = true, message = "Giải này đã được mở khóa rồi." });
 
             t.PaymentClaimedAt = DateTime.UtcNow;
+            // BTC bao lai -> xoa danh dau tu choi cu, canh bao do bien mat
+            t.PaymentRejectedAt = null;
             await _context.SaveChangesAsync();
 
             return Ok(new
@@ -725,6 +735,8 @@ namespace Appwebbongda.Controllers
             t.IsPaid = true;
             t.PaidAt = DateTime.UtcNow;
             t.PaymentNote = $"PNH{t.TournamentId}";
+            // Duyet thanh cong -> khong con can canh bao tu choi cu (neu co)
+            t.PaymentRejectedAt = null;
             await _context.SaveChangesAsync();
 
             return Ok(new { success = true, message = "Đã mở khóa giải đấu.", data = t });
@@ -750,6 +762,62 @@ namespace Appwebbongda.Controllers
             t.PaidAt = null;
             await _context.SaveChangesAsync();
             return Ok(new { success = true, message = "Đã thu hồi trạng thái thanh toán." });
+        }
+
+        /// <summary>
+        /// POST /api/tournaments/{id}/reject-payment — CHI ADMIN
+        /// Tu choi yeu cau kich hoat: xoa co "da bao chuyen khoan", danh dau
+        /// thoi diem tu choi (de nguoi dung thay canh bao), va gui EMAIL nhac
+        /// ho kiem tra lai / chuyen khoan lai.
+        /// </summary>
+        [HttpPost("{id}/reject-payment")]
+        [Authorize(Roles = "Admin")]
+        public async Task<IActionResult> RejectPayment(int id)
+        {
+            var t = await _context.Tournaments.FindAsync(id);
+            if (t == null)
+                return NotFound(new { success = false, message = $"Không tìm thấy giải đấu ID = {id}." });
+
+            if (t.IsPaid)
+                return BadRequest(new { success = false, message = "Giải đã được duyệt, không thể từ chối. Hãy thu hồi trước nếu cần." });
+
+            // Lay email nguoi tao giai de gui thong bao
+            var owner = await _context.Users.FindAsync(t.CreatedByUserId);
+            if (owner == null || string.IsNullOrWhiteSpace(owner.Email))
+                return BadRequest(new { success = false, message = "Không tìm thấy email người đăng ký giải để gửi thông báo." });
+
+            // Xoa co "da bao CK", danh dau thoi diem tu choi
+            // (KHONG xoa PaymentNote — nguoi dung van can ma PNH{id} de chuyen lai)
+            t.PaymentClaimedAt = null;
+            t.PaymentRejectedAt = DateTime.UtcNow;
+            await _context.SaveChangesAsync();
+
+            // Gui email nhac chuyen khoan lai. Boc try-catch: neu gui that bai
+            // (vd SMTP loi tam thoi) van GIU trang thai tu choi da luu — Admin
+            // khong phai lam lai buoc nay, chi la nguoi dung chua nhan duoc mail.
+            var soTien = t.ActivationFee.ToString("N0") + "đ";
+            try
+            {
+                await _emailSender.SendEmailAsync(owner.Email,
+                    $"Chưa xác nhận được thanh toán - Giải {t.Name}",
+                    $"Chào {owner.FullName ?? owner.Email},<br><br>"
+                    + $"Chúng tôi chưa xác nhận được khoản chuyển khoản <b>{soTien}</b> "
+                    + $"cho giải đấu <b>{t.Name}</b> (mã đối soát <b>{t.PaymentNote}</b>).<br><br>"
+                    + "Vui lòng kiểm tra lại và chuyển khoản, hoặc liên hệ Zalo nếu bạn đã "
+                    + "chuyển khoản nhưng nội dung/số tiền chưa đúng.<br><br>"
+                    + "Trân trọng,<br>PNH Football");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[RejectPayment] Gui email that bai cho giai #{id}: {ex.Message}");
+            }
+
+            return Ok(new
+            {
+                success = true,
+                message = $"Đã từ chối và gửi email nhắc {owner.Email}",
+                data = new { rejectedAt = t.PaymentRejectedAt, ownerEmail = owner.Email }
+            });
         }
 
         /// <summary>
@@ -784,6 +852,7 @@ namespace Appwebbongda.Controllers
                              t.IsPaid,
                              t.PaidAt,
                              t.PaymentClaimedAt,
+                             t.PaymentRejectedAt,
                              t.Status,
                              t.Format,
                              ownerEmail = u != null ? u.Email : null,
@@ -826,6 +895,9 @@ namespace Appwebbongda.Controllers
                 x.PaymentClaimedAt,
                 // BTC da bao chuyen khoan -> Admin uu tien kiem tra truoc
                 claimed = x.PaymentClaimedAt != null,
+                x.PaymentRejectedAt,
+                // Admin da tu choi lan gan nhat -> frontend co the hien dau hieu rieng
+                rejected = x.PaymentRejectedAt != null,
                 x.Status,
                 x.Format,
                 x.ownerEmail,

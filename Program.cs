@@ -185,6 +185,9 @@ using (var scope = app.Services.CreateScope())
                 @"IF COL_LENGTH('dbo.Tournaments','PaymentClaimedAt') IS NULL
                   ALTER TABLE dbo.Tournaments ADD PaymentClaimedAt DATETIME2 NULL;",
 
+                @"IF COL_LENGTH('dbo.Tournaments','PaymentRejectedAt') IS NULL
+                  ALTER TABLE dbo.Tournaments ADD PaymentRejectedAt DATETIME2 NULL;",
+
                 // ── CHON DOI VAO VONG TRONG ──
                 @"IF COL_LENGTH('dbo.Tournaments','BestThirdPlaceCount') IS NULL
                   ALTER TABLE dbo.Tournaments ADD BestThirdPlaceCount INT NULL;",
