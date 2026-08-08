@@ -656,6 +656,10 @@ namespace Appwebbongda.Controllers
             });
         }
 
+        /// <summary>
+        /// Tao link anh QR VietQR (mien phi, khong can dang ky).
+        /// Nguoi dung quet la app ngan hang tu dien so tien + noi dung -> giam sai sot.
+        /// </summary>
         // ── THONG TIN NGAN HANG CO DINH ──
         // Dat thang trong code, KHONG doc tu appsettings.json nua. Muon doi
         // ngan hang / so tai khoan thi sua truc tiep 6 dong duoi day roi
@@ -670,10 +674,6 @@ namespace Appwebbongda.Controllers
             public const string ZaloName = "Pham Ngoc Hung";
         }
 
-        /// <summary>
-        /// Tao link anh QR VietQR (mien phi, khong can dang ky).
-        /// Nguoi dung quet la app ngan hang tu dien so tien + noi dung -> giam sai sot.
-        /// </summary>
         private string BuildVietQrUrl(int amount, string note)
         {
             // Dung hang so co dinh — luon co gia tri, khong bao gio rong nua
