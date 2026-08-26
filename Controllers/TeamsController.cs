@@ -122,6 +122,7 @@ namespace Appwebbongda.Controllers
         {
             public string Name { get; set; } = string.Empty;
             public string? LogoUrl { get; set; }
+            public string? ShortName { get; set; }
         }
 
         public class SaveGroupsDto
@@ -178,6 +179,8 @@ namespace Appwebbongda.Controllers
             {
                 Name = dto.Name.Trim(),
                 LogoUrl = dto.LogoUrl,
+                // Chuan hoa: bo trong thua, chuyen HOA, rong -> null (khong co viet tat)
+                ShortName = string.IsNullOrWhiteSpace(dto.ShortName) ? null : dto.ShortName.Trim().ToUpperInvariant(),
                 TournamentId = tournamentId,   // LUON gan dung giai tu URL
                 Status = "Đã duyệt"
             };
@@ -245,6 +248,7 @@ namespace Appwebbongda.Controllers
         {
             public string Name { get; set; } = string.Empty;
             public string? LogoUrl { get; set; }   // base64 hoac URL, co the null
+            public string? ShortName { get; set; } // ten viet tat, vd "MUN"
         }
 
         // DTO cho nhap nhieu doi cung luc.
@@ -319,6 +323,7 @@ namespace Appwebbongda.Controllers
                 {
                     Name = name,
                     LogoUrl = string.IsNullOrWhiteSpace(item?.LogoUrl) ? null : item!.LogoUrl,
+                    ShortName = string.IsNullOrWhiteSpace(item?.ShortName) ? null : item!.ShortName!.Trim().ToUpperInvariant(),
                     TournamentId = tournamentId,
                     Status = "Đã duyệt"
                 });
@@ -351,7 +356,7 @@ namespace Appwebbongda.Controllers
                 added = toAdd.Count,
                 skipped = skipped.Count,
                 skippedNames = skipped,
-                data = toAdd.Select(t => new { t.TeamId, t.Name, t.LogoUrl, t.TournamentId })
+                data = toAdd.Select(t => new { t.TeamId, t.Name, t.LogoUrl, t.ShortName, t.TournamentId })
             });
         }
 
@@ -378,6 +383,8 @@ namespace Appwebbongda.Controllers
 
             if (!string.IsNullOrWhiteSpace(dto.Name)) team.Name = dto.Name.Trim();
             if (dto.LogoUrl != null) team.LogoUrl = dto.LogoUrl;
+            if (dto.ShortName != null)
+                team.ShortName = string.IsNullOrWhiteSpace(dto.ShortName) ? null : dto.ShortName.Trim().ToUpperInvariant();
 
             await _context.SaveChangesAsync();
             return Ok(new { success = true, message = "Cập nhật đội thành công!", data = team });

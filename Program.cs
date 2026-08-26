@@ -188,6 +188,20 @@ using (var scope = app.Services.CreateScope())
                 @"IF COL_LENGTH('dbo.Tournaments','PaymentRejectedAt') IS NULL
                   ALTER TABLE dbo.Tournaments ADD PaymentRejectedAt DATETIME2 NULL;",
 
+                // ── BANG REGISTRATIONS: thieu 2 cot nay tu truoc — Model co san
+                // nhung chua bao gio duoc dua vao syncColumns. Day chinh la nguyen
+                // nhan loi "Invalid column name 'HasPaid'/'PaidAt'" khi chay local
+                // hoac tren database cu (bang duoc tao truoc khi 2 cot nay ton tai).
+                @"IF COL_LENGTH('dbo.Registrations','HasPaid') IS NULL
+                  ALTER TABLE dbo.Registrations ADD HasPaid BIT NOT NULL DEFAULT 0;",
+                @"IF COL_LENGTH('dbo.Registrations','PaidAt') IS NULL
+                  ALTER TABLE dbo.Registrations ADD PaidAt DATETIME2 NULL;",
+
+                // ── BANG TEAMS: ten viet tat, dung khi in anh lich thi dau ──
+                // (vd "MUN" cho "Manchester United") de tranh ten dai lam tran anh.
+                @"IF COL_LENGTH('dbo.Teams','ShortName') IS NULL
+                  ALTER TABLE dbo.Teams ADD ShortName NVARCHAR(10) NULL;",
+
                 // ── CHON DOI VAO VONG TRONG ──
                 @"IF COL_LENGTH('dbo.Tournaments','BestThirdPlaceCount') IS NULL
                   ALTER TABLE dbo.Tournaments ADD BestThirdPlaceCount INT NULL;",

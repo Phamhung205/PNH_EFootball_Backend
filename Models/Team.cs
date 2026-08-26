@@ -27,5 +27,11 @@ namespace Appwebbongda.Models
         // GIAI DOAN 1 - CHIA BANG: ten bang dau ("A", "B", ... hoac null neu chua phan bang)
         [MaxLength(10)]
         public string? GroupName { get; set; }
+
+        // Ten VIET TAT (vd "MUN" cho Manchester United), dung khi IN LICH THI DAU
+        // de tranh ten dai lam tran lich, ep phai cat bot chu ("Manchester ...").
+        // Null/rong = khong co viet tat -> khi in lich CHI hien LOGO, khong hien ten.
+        [MaxLength(10)]
+        public string? ShortName { get; set; }
     }
 }
