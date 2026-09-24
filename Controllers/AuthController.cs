@@ -99,15 +99,54 @@ namespace Appwebbongda.Controllers
         [HttpPost("register/send-otp")]
         public async Task<IActionResult> SendOtp([FromBody] RegisterRequest request)
         {
-            var userExists = await _context.Users.AnyAsync(u => u.Email == request.Email);
+            var email = (request.Email ?? "").Trim();
+
+            if (string.IsNullOrWhiteSpace(email))
+                return BadRequest(new { success = false, message = "Email khong hop le." });
+
+            var userExists = await _context.Users.AnyAsync(u => u.Email == email);
             if (userExists)
                 return Conflict(new { success = false, message = "Email nay da duoc su dung." });
 
-            var otpCode = _otpService.GenerateOtp(request.Email);
-            await _emailSender.SendEmailAsync(request.Email, "Xac thuc OTP - PNH Football",
-                $"Ma OTP cua ban la: {otpCode}. Hieu luc 5 phut.");
+            // Kiem tra cau hinh Brevo ngay tai controller de khong bi bao thanh cong gia.
+            var brevoApiKey = _config["Brevo:ApiKey"];
+            var brevoFrom = _config["Brevo:From"];
 
-            return Ok(new { success = true, message = "Da gui OTP den email." });
+            if (string.IsNullOrWhiteSpace(brevoApiKey) || string.IsNullOrWhiteSpace(brevoFrom))
+            {
+                Console.WriteLine("[OTP-REGISTER] Thieu cau hinh Brevo:ApiKey hoac Brevo:From.");
+                return StatusCode(500, new
+                {
+                    success = false,
+                    message = "May chu chua cau hinh dich vu gui email."
+                });
+            }
+
+            try
+            {
+                var otpCode = _otpService.GenerateOtp(email);
+
+                Console.WriteLine($"[OTP-REGISTER] Dang gui OTP den {email}...");
+
+                await _emailSender.SendEmailAsync(
+                    email,
+                    "Xac thuc OTP - PNH Football",
+                    $"Ma OTP cua ban la: {otpCode}. Hieu luc 5 phut.");
+
+                Console.WriteLine($"[OTP-REGISTER] Gui OTP thanh cong den {email}.");
+
+                return Ok(new { success = true, message = "Da gui OTP den email." });
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[OTP-REGISTER-ERROR] {ex.Message}");
+                return StatusCode(502, new
+                {
+                    success = false,
+                    message = "Khong gui duoc OTP qua email.",
+                    error = ex.Message
+                });
+            }
         }
 
         // ---------- VERIFY OTP + tao user ----------
@@ -302,24 +341,77 @@ namespace Appwebbongda.Controllers
         }
 
         // ===================================================================
-        // MOI: POST /api/Auth/forgot-password -- gui OTP ve email (LOI 4)
+        // POST /api/Auth/forgot-password -- gui OTP ve email
         // ===================================================================
         [HttpPost("forgot-password")]
         public async Task<IActionResult> ForgotPassword([FromBody] ForgotPasswordDto dto)
         {
             var email = (dto.Email ?? "").Trim();
+
+            if (string.IsNullOrWhiteSpace(email))
+                return BadRequest(new { success = false, message = "Email khong hop le." });
+
+            Console.WriteLine($"[OTP-FORGOT] Nhan yeu cau gui OTP cho {email}.");
+
             var user = await _context.Users.FirstOrDefaultAsync(u => u.Email == email);
 
-            // Bao mat: luon tra ve thanh cong du email co ton tai hay khong
-            // (tranh lo email nao da dang ky). Chi gui OTP neu user ton tai.
-            if (user != null)
+            // Neu khong tim thay user thi phai bao loi, khong duoc tra 200 thanh cong.
+            // Day la nguyen nhan truoc do frontend bao 'da gui' nhung khong co log BREVO.
+            if (user == null)
             {
-                var otp = _otpService.GenerateOtp("reset:" + email.ToLowerInvariant());
-                await _emailSender.SendEmailAsync(email, "Dat lai mat khau - PNH Football",
-                    $"Ma OTP dat lai mat khau cua ban la: {otp}. Hieu luc 5 phut. Neu khong phai ban yeu cau, hay bo qua email nay.");
+                Console.WriteLine($"[OTP-FORGOT] Khong tim thay tai khoan voi email {email}.");
+                return NotFound(new
+                {
+                    success = false,
+                    message = "Email nay chua dang ky tai khoan."
+                });
             }
 
-            return Ok(new { success = true, message = "Neu email ton tai, ma OTP da duoc gui." });
+            // Kiem tra cau hinh Brevo truoc khi tao OTP.
+            var brevoApiKey = _config["Brevo:ApiKey"];
+            var brevoFrom = _config["Brevo:From"];
+
+            if (string.IsNullOrWhiteSpace(brevoApiKey) || string.IsNullOrWhiteSpace(brevoFrom))
+            {
+                Console.WriteLine("[OTP-FORGOT] Thieu cau hinh Brevo:ApiKey hoac Brevo:From.");
+                return StatusCode(500, new
+                {
+                    success = false,
+                    message = "May chu chua cau hinh dich vu gui email."
+                });
+            }
+
+            try
+            {
+                var normalizedEmail = email.ToLowerInvariant();
+                var otp = _otpService.GenerateOtp("reset:" + normalizedEmail);
+
+                Console.WriteLine($"[OTP-FORGOT] Dang gui OTP qua Brevo den {email}...");
+
+                await _emailSender.SendEmailAsync(
+                    email,
+                    "Dat lai mat khau - PNH Football",
+                    $"Ma OTP dat lai mat khau cua ban la: {otp}. Hieu luc 5 phut. Neu khong phai ban yeu cau, hay bo qua email nay.");
+
+                Console.WriteLine($"[OTP-FORGOT] Gui OTP thanh cong den {email}.");
+
+                return Ok(new
+                {
+                    success = true,
+                    message = "Da gui ma OTP den email."
+                });
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[OTP-FORGOT-ERROR] {ex.Message}");
+
+                return StatusCode(502, new
+                {
+                    success = false,
+                    message = "Khong gui duoc OTP qua email.",
+                    error = ex.Message
+                });
+            }
         }
 
         // ===================================================================
