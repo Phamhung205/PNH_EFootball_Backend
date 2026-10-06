@@ -55,6 +55,8 @@ namespace Appwebbongda.Models
 
         // #9: Mua giai (VD "Mua 2024", "Mua 1"...). Cho phep null neu khong dung.
         public string? Season { get; set; }
+        [MaxLength(100)]
+        public string? SystemCompetition { get; set; }
 
         // Box chat: admin bat -> user da dang ky se thay box chat
         public bool ChatEnabled { get; set; } = false;

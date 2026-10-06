@@ -144,6 +144,7 @@ namespace Appwebbongda.Controllers
             // Logo giai dau
             public string? LogoUrl { get; set; }
             public string? Season { get; set; }
+            public string? SystemCompetition { get; set; }
             public bool? ChatEnabled { get; set; }
         }
 
@@ -194,6 +195,7 @@ namespace Appwebbongda.Controllers
                         x.t.StartDate,
                         x.t.LogoUrl,
                         x.t.Season,
+                        x.t.SystemCompetition,
                         x.t.AllowRegistration,
                         x.t.ChatEnabled,
                         x.t.RatingSum,
@@ -238,6 +240,11 @@ namespace Appwebbongda.Controllers
         [Authorize]
         public async Task<IActionResult> Create([FromBody] TournamentDto dto)
         {
+            if (dto.SystemCompetition != null && !IsAdmin())
+                return StatusCode(403, new { success = false, message = "Chỉ ADMIN được chọn giải hệ thống." });
+            if (!string.IsNullOrEmpty(dto.SystemCompetition) && !SystemCompetitions.IsValid(dto.SystemCompetition))
+                return BadRequest(new { success = false, message = "Giải hệ thống không hợp lệ." });
+
             if (string.IsNullOrWhiteSpace(dto.Name))
                 return BadRequest(new { success = false, message = "Tên giải đấu không được để trống." });
 
@@ -283,6 +290,7 @@ namespace Appwebbongda.Controllers
                 AllowRegistration = dto.AllowRegistration ?? false,
                 LogoUrl = dto.LogoUrl,
                 Season = dto.Season,
+                SystemCompetition = string.IsNullOrEmpty(dto.SystemCompetition) ? null : dto.SystemCompetition,
                 ChatEnabled = dto.ChatEnabled ?? false,
 
                 // ── PHI KICH HOAT ──
@@ -317,6 +325,11 @@ namespace Appwebbongda.Controllers
         [Authorize]
         public async Task<IActionResult> Update(int id, [FromBody] TournamentDto dto)
         {
+            if (dto.SystemCompetition != null && !IsAdmin())
+                return StatusCode(403, new { success = false, message = "Chỉ ADMIN được chọn giải hệ thống." });
+            if (!string.IsNullOrEmpty(dto.SystemCompetition) && !SystemCompetitions.IsValid(dto.SystemCompetition))
+                return BadRequest(new { success = false, message = "Giải hệ thống không hợp lệ." });
+
             var tournament = await _context.Tournaments.FindAsync(id);
             if (tournament == null)
                 return NotFound(new { success = false, message = $"Không tìm thấy giải đấu ID = {id}." });
@@ -325,6 +338,7 @@ namespace Appwebbongda.Controllers
             if (!CanEditTournament(tournament))
                 return StatusCode(403, new { success = false, code = "NOT_OWNER", message = "Bạn chỉ sửa được giải do chính mình tạo. Giải này thuộc về người khác." });
 
+            var wasCompleted = SystemCompetitions.IsCompleted(tournament.Status);
             if (!string.IsNullOrWhiteSpace(dto.Name)) tournament.Name = dto.Name;
             if (!string.IsNullOrWhiteSpace(dto.Format)) tournament.Format = dto.Format;
             if (!string.IsNullOrWhiteSpace(dto.Status)) tournament.Status = dto.Status;
@@ -343,8 +357,11 @@ namespace Appwebbongda.Controllers
             if (dto.AllowRegistration.HasValue) tournament.AllowRegistration = dto.AllowRegistration.Value;
             if (dto.LogoUrl != null) tournament.LogoUrl = dto.LogoUrl;
             if (dto.Season != null) tournament.Season = dto.Season;
+            if (dto.SystemCompetition != null) tournament.SystemCompetition = dto.SystemCompetition.Length == 0 ? null : dto.SystemCompetition;
             if (dto.ChatEnabled.HasValue) tournament.ChatEnabled = dto.ChatEnabled.Value;
 
+            try { await new ChampionHonorSyncService(_context).StageAsync(tournament, requireResults: !wasCompleted && SystemCompetitions.IsCompleted(dto.Status)); }
+            catch (InvalidOperationException ex) { return BadRequest(new { success = false, message = ex.Message }); }
             await _context.SaveChangesAsync();
             return Ok(new { success = true, message = "Cập nhật giải đấu thành công!", data = tournament });
         }
@@ -474,6 +491,8 @@ namespace Appwebbongda.Controllers
                 }
 
                 tournament.Status = dto.Status;
+                try { await new ChampionHonorSyncService(_context).StageAsync(tournament); }
+                catch (InvalidOperationException ex) { return BadRequest(new { success = false, message = ex.Message }); }
                 await _context.SaveChangesAsync();
 
                 return Ok(new { success = true, message = "Cập nhật trạng thái thành công!", data = tournament });

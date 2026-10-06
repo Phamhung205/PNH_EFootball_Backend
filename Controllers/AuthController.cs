@@ -26,6 +26,7 @@ namespace Appwebbongda.Controllers
         private readonly ISmsSender _smsSender;
         private readonly IConfiguration _config;
         private readonly ISubscriptionService _subscription;
+        private readonly AdminNotificationService _notifications;
 
         private const string AdminEmail = "aadmin588@gmail.com";
 
@@ -36,7 +37,7 @@ namespace Appwebbongda.Controllers
             IEmailSender emailSender,
             ISmsSender smsSender,
             IConfiguration config,
-            ISubscriptionService subscription)
+            ISubscriptionService subscription, AdminNotificationService notifications)
         {
             _context = context;
             _jwtService = jwtService;
@@ -45,6 +46,7 @@ namespace Appwebbongda.Controllers
             _smsSender = smsSender;
             _config = config;
             _subscription = subscription;
+            _notifications = notifications;
         }
 
         private static string HashPassword(string password) =>
@@ -74,6 +76,7 @@ namespace Appwebbongda.Controllers
                     await _context.SaveChangesAsync();
 
                 var jwtToken = _jwtService.GenerateToken(user);
+                await _notifications.RecordLoginAsync(user);
                 return Ok(new
                 {
                     token = jwtToken,
@@ -240,6 +243,7 @@ namespace Appwebbongda.Controllers
                 await _context.SaveChangesAsync();
 
             var token = _jwtService.GenerateToken(user);
+            await _notifications.RecordLoginAsync(user);
             return Ok(new
             {
                 success = true,
