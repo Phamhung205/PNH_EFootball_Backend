@@ -183,18 +183,26 @@ namespace Appwebbongda.Controllers
             // Lấy danh sách ID các giải đấu hiện có
             var tournamentIds = tournamentsList.Select(t => t.TournamentId).ToList();
 
-            // 2. Truy vấn gom nhóm số đội 1 lần duy nhất để tránh lỗi N+1 Query gây nghẽn 503
-            var teamCounts = await _context.Teams
-                .Where(te => tournamentIds.Contains(te.TournamentId))
-                .GroupBy(te => te.TournamentId)
-                .Select(g => new { TournamentId = g.Key, Count = g.Count() })
-                .ToDictionaryAsync(x => x.TournamentId, x => x.Count);
+            // 2. Truy vấn gom nhóm số đội (chỉ chạy khi có ID giải đấu để tránh lỗi cú pháp SQL)
+            Dictionary<int, int> teamCounts = new();
+            if (tournamentIds.Any())
+            {
+                teamCounts = await _context.Teams
+                    .Where(te => tournamentIds.Contains(te.TournamentId))
+                    .GroupBy(te => te.TournamentId)
+                    .Select(g => new { TournamentId = g.Key, Count = g.Count() })
+                    .ToDictionaryAsync(x => x.TournamentId, x => x.Count);
+            }
 
-            // 3. Lấy danh sách User tạo giải để ghép tên
+            // 3. Lấy danh sách User tạo giải để ghép tên (chỉ chạy khi có ID người dùng)
             var userIds = tournamentsList.Where(t => t.CreatedByUserId.HasValue).Select(t => t.CreatedByUserId!.Value).Distinct().ToList();
-            var usersDict = await _context.Users
-                .Where(u => userIds.Contains(u.Id))
-                .ToDictionaryAsync(u => u.Id, u => u.FullName);
+            Dictionary<int, string?> usersDict = new();
+            if (userIds.Any())
+            {
+                usersDict = await _context.Users
+                    .Where(u => userIds.Contains(u.Id))
+                    .ToDictionaryAsync(u => u.Id, u => u.FullName);
+            }
 
             // 4. Map dữ liệu trả về cho client
             var tournaments = tournamentsList.Select(t => new
@@ -220,7 +228,6 @@ namespace Appwebbongda.Controllers
                     ? usersDict[t.CreatedByUserId.Value]
                     : null,
                 CreatedByAvatar = (string?)null,
-                // Lấy số đội từ Dictionary đã gom nhóm sẵn (Cực kỳ nhanh và an toàn)
                 TeamCount = teamCounts.ContainsKey(t.TournamentId) ? teamCounts[t.TournamentId] : 0
             }).ToList();
 
