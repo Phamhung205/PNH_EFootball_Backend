@@ -2,12 +2,11 @@
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 
-# Copy toàn bộ mã nguồn để Docker nhận diện chính xác cấu trúc thư mục và file csproj
-COPY . ./
+# Copy toàn bộ mã nguồn vào container
+COPY . .
 
-# Khôi phục và publish trực tiếp từ file project của dự án
-RUN dotnet restore "Appwebbongda.csproj"
-RUN dotnet publish "Appwebbongda.csproj" -c Release -o /app/publish /p:UseAppHost=false
+# Publish trực tiếp dự án sang thư mục /app/publish
+RUN dotnet publish "Appwebbongda.csproj" -c Release -o /app/publish
 
 # ---- Runtime stage ----
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
