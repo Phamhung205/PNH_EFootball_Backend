@@ -7,7 +7,7 @@ COPY . ./
 
 # Khôi phục và publish trực tiếp từ file project của dự án
 RUN dotnet restore "Appwebbongda.csproj"
-RUN dotnet publish "Appwebbongda.csproj" -c Release -o /app/publish
+RUN dotnet publish "Appwebbongda.csproj" -c Release -o /app/publish /p:UseAppHost=false
 
 # ---- Runtime stage ----
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
