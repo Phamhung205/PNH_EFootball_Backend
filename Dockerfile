@@ -2,19 +2,19 @@
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 
-# Chi dinh thang file .csproj de tranh Docker tu tim file .slnx (tro sai duong dan cu)
-COPY *.csproj ./
-RUN dotnet restore Appwebbongda.csproj
-
+# Copy toàn bộ mã nguồn để Docker nhận diện chính xác cấu trúc thư mục và file csproj
 COPY . ./
-RUN dotnet publish Appwebbongda.csproj -c Release -o /app/publish
+
+# Khôi phục và publish trực tiếp từ file project của dự án
+RUN dotnet restore "Appwebbongda.csproj"
+RUN dotnet publish "Appwebbongda.csproj" -c Release -o /app/publish
 
 # ---- Runtime stage ----
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
 WORKDIR /app
-COPY --from=build /app/publish ./
+COPY --from=build /app/publish .
 
-# Render cap cong qua bien PORT; ASP.NET Core doc qua ASPNETCORE_HTTP_PORTS
+# Render cấp cổng qua biến PORT cho ASP.NET Core
 ENV ASPNETCORE_HTTP_PORTS=8080
 EXPOSE 8080
 
