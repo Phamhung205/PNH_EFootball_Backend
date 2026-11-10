@@ -4,6 +4,8 @@
 // ============================================================
 
 using System.Text;
+using System.Security.Claims;
+using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
@@ -135,6 +137,16 @@ builder.Services
 builder.Services
     .AddHttpClient();
 
+builder.Services.AddMemoryCache();
+builder.Services.AddHttpClient("tiktok-downloader", client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(100);
+    client.DefaultRequestHeaders.UserAgent.ParseAdd("PNHFootball/1.0");
+}).ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
+{
+    AllowAutoRedirect = false
+});
+
 // ============================================================
 // 3. JWT
 // ============================================================
@@ -207,7 +219,12 @@ builder.Services
     );
 
 builder.Services
-    .AddAuthorization();
+    .AddAuthorization(options =>
+    {
+        options.AddPolicy("TikTokAdmin", policy => policy.RequireAuthenticatedUser()
+            .RequireAssertion(context => context.User.Claims.Any(claim =>
+                claim.Type == ClaimTypes.Role && string.Equals(claim.Value, "Admin", StringComparison.OrdinalIgnoreCase))));
+    });
 
 // ============================================================
 // 4. RATE LIMIT
@@ -217,6 +234,17 @@ builder.Services
     .AddRateLimiter(
         options =>
         {
+            options.AddPolicy("tiktok", context => RateLimitPartition.GetFixedWindowLimiter(
+                context.User.FindFirstValue(ClaimTypes.NameIdentifier)
+                    ?? context.Connection.RemoteIpAddress?.ToString() ?? "anonymous",
+                _ => new FixedWindowRateLimiterOptions
+                {
+                    PermitLimit = 12,
+                    Window = TimeSpan.FromMinutes(1),
+                    QueueLimit = 0,
+                    AutoReplenishment = true
+                }));
+
             options
                 .RejectionStatusCode =
                 429;

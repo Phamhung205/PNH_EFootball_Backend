@@ -175,42 +175,54 @@ namespace Appwebbongda.Controllers
                 query = query.Where(t => t.CreatedByUserId == uid.Value);
             }
 
-            // Join sang Users de lay ten nguoi tao (left join: giai cu co the khong co nguoi tao)
-            var tournaments = await query
-                .GroupJoin(_context.Users,
-                    t => t.CreatedByUserId,
-                    u => u.Id,
-                    (t, us) => new { t, us })
-                .SelectMany(x => x.us.DefaultIfEmpty(),
-                    (x, u) => new
-                    {
-                        x.t.TournamentId,
-                        x.t.Name,
-                        x.t.Format,
-                        x.t.Status,
-                        x.t.Description,
-                        x.t.MaxTeams,
-                        x.t.NumberOfGroups,
-                        x.t.TeamsAdvancingPerGroup,
-                        x.t.StartDate,
-                        x.t.LogoUrl,
-                        x.t.Season,
-                        x.t.SystemCompetition,
-                        x.t.AllowRegistration,
-                        x.t.ChatEnabled,
-                        x.t.RatingSum,
-                        x.t.RatingCount,
-                        x.t.CreatedByUserId,
-                        // Ten nguoi tao — hien o trang cong dong
-                        CreatedByName = u != null ? u.FullName : null,
-                        // KHONG tra AvatarUrl o day: anh la chuoi base64 dai,
-                        // 20 giai = ~120KB tai them, trong khi the giai chi hien
-                        // anh o 4x4 pixel. Frontend se hien chu cai dau ten thay the.
-                        CreatedByAvatar = (string?)null,
-                        // So doi cua giai (de the giai hien dung so luong)
-                        TeamCount = _context.Teams.Count(te => te.TournamentId == x.t.TournamentId)
-                    })
+            // 1. Lấy danh sách giải đấu trước kèm theo AsNoTracking để tối ưu hiệu năng đọc
+            var tournamentsList = await query
+                .AsNoTracking()
                 .ToListAsync();
+
+            // Lấy danh sách ID các giải đấu hiện có
+            var tournamentIds = tournamentsList.Select(t => t.TournamentId).ToList();
+
+            // 2. Truy vấn gom nhóm số đội 1 lần duy nhất để tránh lỗi N+1 Query gây nghẽn 503
+            var teamCounts = await _context.Teams
+                .Where(te => tournamentIds.Contains(te.TournamentId))
+                .GroupBy(te => te.TournamentId)
+                .Select(g => new { TournamentId = g.Key, Count = g.Count() })
+                .ToDictionaryAsync(x => x.TournamentId, x => x.Count);
+
+            // 3. Lấy danh sách User tạo giải để ghép tên
+            var userIds = tournamentsList.Where(t => t.CreatedByUserId.HasValue).Select(t => t.CreatedByUserId!.Value).Distinct().ToList();
+            var usersDict = await _context.Users
+                .Where(u => userIds.Contains(u.Id))
+                .ToDictionaryAsync(u => u.Id, u => u.FullName);
+
+            // 4. Map dữ liệu trả về cho client
+            var tournaments = tournamentsList.Select(t => new
+            {
+                t.TournamentId,
+                t.Name,
+                t.Format,
+                t.Status,
+                t.Description,
+                t.MaxTeams,
+                t.NumberOfGroups,
+                t.TeamsAdvancingPerGroup,
+                t.StartDate,
+                t.LogoUrl,
+                t.Season,
+                t.SystemCompetition,
+                t.AllowRegistration,
+                t.ChatEnabled,
+                t.RatingSum,
+                t.RatingCount,
+                t.CreatedByUserId,
+                CreatedByName = t.CreatedByUserId.HasValue && usersDict.ContainsKey(t.CreatedByUserId.Value)
+                    ? usersDict[t.CreatedByUserId.Value]
+                    : null,
+                CreatedByAvatar = (string?)null,
+                // Lấy số đội từ Dictionary đã gom nhóm sẵn (Cực kỳ nhanh và an toàn)
+                TeamCount = teamCounts.ContainsKey(t.TournamentId) ? teamCounts[t.TournamentId] : 0
+            }).ToList();
 
             return Ok(new { success = true, data = tournaments });
         }
