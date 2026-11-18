@@ -32,6 +32,22 @@ namespace Appwebbongda.Controllers
         public const int FEE_LARGE = 25000;
         public const int LARGE_THRESHOLD = 32;   // tu moc nay tro len tinh gia cao
 
+        // Gioi han logo (ky tu cua chuoi base64). ~400.000 ky tu = ~300KB anh.
+        // Frontend da nen xuong toi da ~250KB; day la lop chan cuoi neu bi bo qua.
+        public const int MAX_LOGO_CHARS = 400_000;
+
+        private IActionResult? KiemTraLogo(string? logo)
+        {
+            if (!string.IsNullOrEmpty(logo) && logo.Length > MAX_LOGO_CHARS)
+                return BadRequest(new
+                {
+                    success = false,
+                    code = "LOGO_TOO_LARGE",
+                    message = $"Logo quá nặng ({logo.Length / 1024} KB). Vui lòng chọn ảnh nhỏ hơn (tối đa khoảng {MAX_LOGO_CHARS / 1024} KB)."
+                });
+            return null;
+        }
+
         /// <summary>
         /// Tinh phi kich hoat theo so doi cua giai.
         /// He thong TU NHAN DIEN so doi user nhap, khong can chon goi.
@@ -175,61 +191,42 @@ namespace Appwebbongda.Controllers
                 query = query.Where(t => t.CreatedByUserId == uid.Value);
             }
 
-            // 1. Lấy danh sách giải đấu trước kèm theo AsNoTracking để tối ưu hiệu năng đọc
-            var tournamentsList = await query
-                .AsNoTracking()
+            // Join sang Users de lay ten nguoi tao (left join: giai cu co the khong co nguoi tao)
+            var tournaments = await query
+                .GroupJoin(_context.Users,
+                    t => t.CreatedByUserId,
+                    u => u.Id,
+                    (t, us) => new { t, us })
+                .SelectMany(x => x.us.DefaultIfEmpty(),
+                    (x, u) => new
+                    {
+                        x.t.TournamentId,
+                        x.t.Name,
+                        x.t.Format,
+                        x.t.Status,
+                        x.t.Description,
+                        x.t.MaxTeams,
+                        x.t.NumberOfGroups,
+                        x.t.TeamsAdvancingPerGroup,
+                        x.t.StartDate,
+                        x.t.LogoUrl,
+                        x.t.Season,
+                        x.t.SystemCompetition,
+                        x.t.AllowRegistration,
+                        x.t.ChatEnabled,
+                        x.t.RatingSum,
+                        x.t.RatingCount,
+                        x.t.CreatedByUserId,
+                        // Ten nguoi tao — hien o trang cong dong
+                        CreatedByName = u != null ? u.FullName : null,
+                        // KHONG tra AvatarUrl o day: anh la chuoi base64 dai,
+                        // 20 giai = ~120KB tai them, trong khi the giai chi hien
+                        // anh o 4x4 pixel. Frontend se hien chu cai dau ten thay the.
+                        CreatedByAvatar = (string?)null,
+                        // So doi cua giai (de the giai hien dung so luong)
+                        TeamCount = _context.Teams.Count(te => te.TournamentId == x.t.TournamentId)
+                    })
                 .ToListAsync();
-
-            // Lấy danh sách ID các giải đấu hiện có
-            var tournamentIds = tournamentsList.Select(t => t.TournamentId).ToList();
-
-            // 2. Truy vấn gom nhóm số đội (chỉ chạy khi có ID giải đấu để tránh lỗi cú pháp SQL)
-            Dictionary<int, int> teamCounts = new();
-            if (tournamentIds.Any())
-            {
-                teamCounts = await _context.Teams
-                    .Where(te => tournamentIds.Contains(te.TournamentId))
-                    .GroupBy(te => te.TournamentId)
-                    .Select(g => new { TournamentId = g.Key, Count = g.Count() })
-                    .ToDictionaryAsync(x => x.TournamentId, x => x.Count);
-            }
-
-            // 3. Lấy danh sách User tạo giải để ghép tên (chỉ chạy khi có ID người dùng)
-            var userIds = tournamentsList.Where(t => t.CreatedByUserId.HasValue).Select(t => t.CreatedByUserId!.Value).Distinct().ToList();
-            Dictionary<int, string?> usersDict = new();
-            if (userIds.Any())
-            {
-                usersDict = await _context.Users
-                    .Where(u => userIds.Contains(u.Id))
-                    .ToDictionaryAsync(u => u.Id, u => u.FullName);
-            }
-
-            // 4. Map dữ liệu trả về cho client
-            var tournaments = tournamentsList.Select(t => new
-            {
-                t.TournamentId,
-                t.Name,
-                t.Format,
-                t.Status,
-                t.Description,
-                t.MaxTeams,
-                t.NumberOfGroups,
-                t.TeamsAdvancingPerGroup,
-                t.StartDate,
-                t.LogoUrl,
-                t.Season,
-                t.SystemCompetition,
-                t.AllowRegistration,
-                t.ChatEnabled,
-                t.RatingSum,
-                t.RatingCount,
-                t.CreatedByUserId,
-                CreatedByName = t.CreatedByUserId.HasValue && usersDict.ContainsKey(t.CreatedByUserId.Value)
-                    ? usersDict[t.CreatedByUserId.Value]
-                    : null,
-                CreatedByAvatar = (string?)null,
-                TeamCount = teamCounts.ContainsKey(t.TournamentId) ? teamCounts[t.TournamentId] : 0
-            }).ToList();
 
             return Ok(new { success = true, data = tournaments });
         }
@@ -263,6 +260,9 @@ namespace Appwebbongda.Controllers
                 return StatusCode(403, new { success = false, message = "Chỉ ADMIN được chọn giải hệ thống." });
             if (!string.IsNullOrEmpty(dto.SystemCompetition) && !SystemCompetitions.IsValid(dto.SystemCompetition))
                 return BadRequest(new { success = false, message = "Giải hệ thống không hợp lệ." });
+
+            var logoErr = KiemTraLogo(dto.LogoUrl);
+            if (logoErr != null) return logoErr;
 
             if (string.IsNullOrWhiteSpace(dto.Name))
                 return BadRequest(new { success = false, message = "Tên giải đấu không được để trống." });
@@ -348,6 +348,9 @@ namespace Appwebbongda.Controllers
                 return StatusCode(403, new { success = false, message = "Chỉ ADMIN được chọn giải hệ thống." });
             if (!string.IsNullOrEmpty(dto.SystemCompetition) && !SystemCompetitions.IsValid(dto.SystemCompetition))
                 return BadRequest(new { success = false, message = "Giải hệ thống không hợp lệ." });
+
+            var logoErrU = KiemTraLogo(dto.LogoUrl);
+            if (logoErrU != null) return logoErrU;
 
             var tournament = await _context.Tournaments.FindAsync(id);
             if (tournament == null)
