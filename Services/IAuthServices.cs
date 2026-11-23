@@ -148,7 +148,8 @@ namespace Appwebbongda.Services
 
         public async Task SendEmailAsync(string email, string subject, string message)
         {
-            var apiKey = _config["Brevo:ApiKey"];                 // API key Brevo (xkeysib-...)
+            // Cat khoang trang / xuong dong / dau nhay thua khi dan key vao bien moi truong
+            var apiKey = _config["Brevo:ApiKey"]?.Trim().Trim('"', '\'').Trim();   // API key Brevo (xkeysib-...)
             var fromEmail = _config["Brevo:From"];                // email sender da xac minh trong Brevo
             var fromName = _config["Brevo:FromName"] ?? "PNH Football";
 
@@ -178,6 +179,8 @@ namespace Appwebbongda.Services
             if (!res.IsSuccessStatusCode)
             {
                 Console.WriteLine($"[BREVO LOI {(int)res.StatusCode}] {resBody}");
+                // Chan doan KHONG lo key: chi in 10 ky tu dau + do dai de biet dang dung key nao
+                Console.WriteLine($"[BREVO KEY] bat dau='{(apiKey.Length >= 10 ? apiKey.Substring(0, 10) : apiKey)}' dodai={apiKey.Length} from='{fromEmail}'");
                 throw new Exception($"Gui email that bai: {(int)res.StatusCode} - {resBody}");
             }
             Console.WriteLine($"[EMAIL DA GUI qua Brevo] -> {email} | {subject}");
